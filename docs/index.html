@@ -198,7 +198,8 @@ function PlannerApp(){
   const tasksToShow = useMemo(()=> !categories.length ? tasks : tasks.filter(t=>!t.categoryId || enabledCategoryIds.has(t.categoryId)), [tasks,categories,enabledCategoryIds]);
 
   const colWidthPx = 44;
-  const gridStyle = { display:'grid', gridTemplateColumns:`repeat(${weeks.length}, ${colWidthPx}px)` };
+  const gridCols = `repeat(${weeks.length}, ${colWidthPx}px)`;
+  const gridStyle = { display:'grid', gridTemplateColumns:gridCols };
 
   const [drag,setDrag]=useState(null);
   useEffect(()=>{
@@ -228,29 +229,120 @@ function PlannerApp(){
   function addNoteToTask(taskId,text){ const v=(text||"").trim(); if(!v) return; setTasks(prev=> prev.map(t=> t.id===taskId ? {...t, notes:[...(t.notes||[]), v]} : t)); setNoteEditor({taskId, draft:""}); }
   function deleteNote(taskId,idx){ setTasks(prev=> prev.map(t=> t.id===taskId ? {...t, notes:(t.notes||[]).filter((_,i)=>i!==idx)} : t)); }
 
+  const testResults = useMemo(()=>{
+    const results = [];
+    const t1 = TIMELINE_START.getDay()===1 && TIMELINE_START.getDate()===1 && TIMELINE_START.getMonth()===8;
+    results.push({ name:"TIMELINE_START est lun 1 sept. 2025", pass:t1, details: toISODate(TIMELINE_START)});
+    const weeksCountOk = weeks.length>0 && weeks.length<60;
+    results.push({ name:"Nombre de semaines plausible", pass:weeksCountOk, details:String(weeks.length)});
+    const sumSpan = monthSegments.reduce((a,b)=>a+b.span,0);
+    results.push({ name:"Somme spans == nb semaines", pass: sumSpan===weeks.length, details: `${sumSpan} vs ${weeks.length}`});
+    const allEnabledByDefault = categories.every(c=> c.enabled !== false);
+    results.push({ name:"Catégories actives par défaut", pass: allEnabledByDefault, details: String(allEnabledByDefault)});
+    const w0 = weekIndexOf(TIMELINE_START)===0;
+    results.push({ name:"weekIndexOf(TIMELINE_START) == 0", pass:w0, details:String(w0)});
+    const spanOk = tasks.every(t=> { const g = taskToGrid(t); return g && g.span>=1; });
+    results.push({ name:"Span ≥ 1 pour toutes les tâches", pass: spanOk, details: String(spanOk)});
+    const noDupIso = weeks.every((w,i,a)=> i===0 || getISOWeek(w) !== getISOWeek(a[i-1]));
+    results.push({ name:"Semaines ISO sans doublon consécutif", pass: noDupIso, details: String(noDupIso) });
+    const hasDangling = (()=>{ const catIds = new Set(categories.map(c=>c.id)); return tasks.some(t=> t.categoryId && !catIds.has(t.categoryId)); })();
+    results.push({ name:"Pas de référence de catégorie orpheline", pass: !hasDangling, details: String(!hasDangling)});
+    results.push({ name:"resetAll() est une fonction", pass: typeof resetAll === 'function', details: typeof resetAll });
+    const hexOk = categories.every(c=> /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(String(c.color || "")));
+    results.push({ name:"Couleurs catégories au format hex", pass: hexOk, details: String(hexOk)});
+    const showCountOk = tasksToShow.length <= tasks.length;
+    results.push({ name:"Filtre ≤ total", pass: showCountOk, details: `${tasksToShow.length}/${tasks.length}`});
+    const taskColorsOk = tasks.every(t=> /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(String(t.color || "")));
+    results.push({ name:"Couleurs tâches au format hex", pass: taskColorsOk, details: String(taskColorsOk) });
+    const catColorMap = new Map(categories.map(c=>[c.id,c.color]));
+    const syncOk = tasks.every(t=> !t.categoryId || t.color === catColorMap.get(t.categoryId));
+    results.push({ name:"Tâches sync avec couleur catégorie", pass: syncOk, details: String(syncOk) });
+    const colsOk = weeks.length>0 && typeof gridCols === 'string';
+    results.push({ name:"Grille OK", pass: colsOk, details: gridCols});
+    const p = parseDateRangeFromText("2025-09-06 → 2025-09-22");
+    const parseOk = !!p && p.startISO === "2025-09-06" && p.endISO === "2025-09-22";
+    results.push({ name:"Parse plage date", pass: parseOk, details: p ? `${p.startISO}→${p.endISO}` : "null"});
+    const notesArrOk = tasks.every(t=> Array.isArray(t.notes || []));
+    results.push({ name:"Notes: tableau présent", pass: notesArrOk, details: String(notesArrOk)});
+    return results;
+  },[weeks.length, monthSegments, categories, tasks, tasksToShow.length, gridCols]);
+
   /* UI */
   return (
     <ErrorBoundary>
       {panelOpen && (
-        <div className="fixed inset-0 z-50 bg-black/20" onClick={()=>setPanelOpen(false)}>
-          <div className="absolute left-4 top-4 w-64 rounded-xl border border-slate-200 bg-white p-4 shadow-lg flex flex-col gap-2" onClick={e=>e.stopPropagation()}>
-            <button onClick={resetAll} className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-50">Réinitialiser tout</button>
-            <span className="text-xs rounded-full border px-2 py-1" style={{borderColor:'#cbd5e1', color: sync.status==='error'? '#b91c1c' : '#334155', backgroundColor: sync.status==='saving'? '#f1f5f9' : '#fff' }}>
-              {sync.status==='loading' && 'Synchro…'}
-              {sync.status==='saving'  && 'Enregistrement…'}
-              {sync.status==='ok'      && (sync.ts ? `Synchro OK · ${new Date(sync.ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}` : 'Synchro OK')}
-              {sync.status==='error'   && 'Erreur de synchro'}
-            </span>
-            <button onClick={()=>{ const data=JSON.stringify({categories,tasks}); navigator.clipboard.writeText(data).then(()=>alert('État copié.')).catch(()=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([data],{type:'application/json'})); a.download='planner-state.json'; a.click(); }); setPanelOpen(false); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">Exporter</button>
-            <button onClick={()=>{ const t=prompt('Collez le JSON :'); if(!t) return; try{ const s=JSON.parse(t); setCategories(Array.isArray(s.categories)?s.categories:[]); setTasks(Array.isArray(s.tasks)? s.tasks.map((t,i)=>({...t,row:typeof t.row==='number'?t.row:i})) : []);}catch{ alert('JSON invalide'); } setPanelOpen(false); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">Importer</button>
-            <button onClick={()=>{ const url=location.origin+location.pathname+location.search+'#s='+b64Encode(JSON.stringify({categories,tasks})); window.open(url,'_blank'); setPanelOpen(false); }} className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">Nouveau (→ transfère)</button>
-          </div>
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/20" onClick={()=>setPanelOpen(false)} />
+          <aside className="absolute left-0 top-0 h-full w-[380px] max-w-[90vw] overflow-y-auto border-r border-slate-200 bg-white shadow-xl" onClick={e=>e.stopPropagation()}>
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+              <div className="font-medium">Planificateur</div>
+              <div className="flex items-center gap-2">
+                <button onClick={()=>setShowTests(v=>!v)} className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">{showTests ? 'Tests: ON' : 'Tests: OFF'}</button>
+                <button onClick={()=>setPanelOpen(false)} className="rounded-full border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 hover:bg-slate-50" aria-label="Fermer">✕</button>
+              </div>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="flex flex-col gap-2">
+                <button onClick={resetAll} className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-50">Réinitialiser tout</button>
+                <span className="text-xs rounded-full border px-2 py-1" style={{borderColor:'#cbd5e1', color: sync.status==='error' ? '#b91c1c' : '#334155', backgroundColor: sync.status==='saving' ? '#f1f5f9' : '#fff' }}>
+                  {sync.status==='loading' && 'Synchro…'}
+                  {sync.status==='saving'  && 'Enregistrement…'}
+                  {sync.status==='ok'      && (sync.ts ? `Synchro OK · ${new Date(sync.ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}` : 'Synchro OK')}
+                  {sync.status==='error'   && 'Erreur de synchro'}
+                </span>
+                <button onClick={()=>{ const data=JSON.stringify({categories,tasks}); navigator.clipboard.writeText(data).then(()=>alert('État copié.')).catch(()=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([data],{type:'application/json'})); a.download='planner-state.json'; a.click(); }); setPanelOpen(false); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">Exporter</button>
+                <button onClick={()=>{ const t=prompt('Collez le JSON :'); if(!t) return; try{ const s=JSON.parse(t); setCategories(Array.isArray(s.categories)?s.categories:[]); setTasks(Array.isArray(s.tasks)? s.tasks.map((t,i)=>({...t,row:typeof t.row==='number'?t.row:i})) : []);}catch{ alert('JSON invalide'); } setPanelOpen(false); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">Importer</button>
+                <button onClick={()=>{ const url=location.origin+location.pathname+location.search+'#s='+b64Encode(JSON.stringify({categories,tasks})); window.open(url,'_blank'); setPanelOpen(false); }} className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">Nouveau (→ transfère)</button>
+              </div>
+              <form onSubmit={addTask} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <h2 className="mb-2 text-sm font-medium text-slate-700">Ajouter une ligne (tâche)</h2>
+                <div className="grid grid-cols-1 gap-3">
+                  <label className="text-sm">Intitulé
+                    <input type="text" value={newTask.title} onChange={(e)=>setNewTask(s=>({...s,title:e.target.value}))} placeholder="Ex. Semaine de tournage" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+                  </label>
+                  <label className="text-sm">Plage de dates
+                    <input type="text" value={newTask.range} onChange={(e)=>{ const v=e.target.value; setNewTask(s=>{ const p=parseDateRangeFromText(v); return p ? {...s,range:v,startISO:p.startISO,endISO:p.endISO} : {...s,range:v}; }); }} placeholder="2025-09-06 → 2025-09-22" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="text-sm">Catégorie (couleur + nom)
+                      <select value={newTask.categoryId} onChange={(e)=>setNewTask(s=>({...s,categoryId:e.target.value}))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
+                        <option value="">— Aucune —</option>
+                        {categories.map(c=>(<option key={c.id} value={c.id}>{c.name}</option>))}
+                      </select>
+                    </label>
+                    <label className="text-sm">Couleur (si pas de catégorie)
+                      <input type="color" value={newTask.color} onChange={(e)=>setNewTask(s=>({...s,color:e.target.value}))} className="mt-1 h-10 w-full cursor-pointer rounded-lg border border-slate-300" title="Choisir une couleur" />
+                    </label>
+                  </div>
+                  <label className="text-sm">Dénomination (si nouvelle couleur)
+                    <input type="text" value={newTask.newCategoryName} onChange={(e)=>setNewTask(s=>({...s,newCategoryName:e.target.value}))} placeholder="Ex. Montage" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+                  </label>
+                  <button type="submit" className="mt-1 inline-flex items-center justify-center rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">Ajouter la ligne</button>
+                </div>
+              </form>
+              {showTests && (
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <h2 className="mb-2 text-sm font-medium text-slate-700">Tests</h2>
+                  <ul className="space-y-1 text-sm">
+                    {testResults.map((t,i)=>(
+                      <li key={i} className="flex items-center gap-3">
+                        <span className={(t.pass?"bg-green-100 text-green-700":"bg-red-100 text-red-700")+" inline-flex h-5 min-w-[20px] items-center justify-center rounded px-1 text-xs font-semibold"}>{t.pass?"OK":"KO"}</span>
+                        <span>{t.name}</span>
+                        <span className="ml-auto text-xs text-slate-500">{t.details}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </aside>
         </div>
       )}
       <div className="min-h-screen w-full bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
         <div className="mx-auto max-w-[1400px] px-4 py-4">
-          <div className="mb-4">
+          <div className="mb-4 flex items-center justify-between">
             <button onClick={()=>setPanelOpen(true)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"><span style={{fontSize:18}}>☰</span> Planificateur</button>
+            <h1 className="text-lg font-semibold tracking-tight">Planning (sept. 2025 → fév. 2026)</h1>
           </div>
 
           {categories.length>0 && (
