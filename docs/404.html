@@ -17,49 +17,70 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Point de montage où l'application React sera rendue -->
     <!-- Supabase JS v2 (UMD) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <!-- App React -->
     <script type="text/babel" data-presets="env,react">
 /* ==== App React ==== */
+// Récupère les hooks React utilisés dans l'application
 const { useEffect, useMemo, useState } = React;
 
 /* Supabase */
+// Paramètres de connexion au projet Supabase
 const SUPABASE_URL = "https://kadoikpkjmkchabvnuqs.supabase.co";
+// Clé publique permettant l'accès anonyme à l'API
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZG9pa3Bram1rY2hhYnZudXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMzEwNDIsImV4cCI6MjA3MDkwNzA0Mn0.q28StZ8nsrbck2Xx6xBCfpgdfLotxne3cyWc6-o_FZM";
+// Identifiant du document à charger/enregistrer côté base
 const DOC_SLUG = "main";
+// Client Supabase utilisé pour toutes les requêtes
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* Dates / utilitaires */
+// Jour de début de semaine (1 = lundi)
 const WEEK_STARTS_ON = 1;
+// Nombre de millisecondes dans une journée
 const MS_DAY = 24 * 60 * 60 * 1000;
+// Retourne le premier jour de la semaine pour une date donnée
 function startOfWeek(d, w = WEEK_STARTS_ON){ const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); const day=x.getDay(); const diff=(day-w+7)%7; x.setDate(x.getDate()-diff); x.setHours(0,0,0,0); return x; }
+// Retourne le dernier instant de la semaine pour une date donnée
 function endOfWeek(d, w = WEEK_STARTS_ON){ const s=startOfWeek(d,w); const e=new Date(s.getTime()+MS_DAY*6); e.setHours(23,59,59,999); return e; }
+// Force une date à rester dans un intervalle donné
 function clampDate(d,minD,maxD){ if(d<minD) return new Date(minD); if(d>maxD) return new Date(maxD); return d; }
+// Convertit un objet Date en chaîne ISO (YYYY-MM-DD)
 function toISODate(d){ const yyyy=d.getFullYear(); const mm=String(d.getMonth()+1).padStart(2,"0"); const dd=String(d.getDate()).padStart(2,"0"); return `${yyyy}-${mm}-${dd}`; }
+// Ajoute n semaines à une date ISO tout en respectant des bornes min/max
 function addWeeksISO(iso,n,minD,maxD){ const d=new Date(iso); d.setDate(d.getDate()+7*n); return toISODate(clampDate(d,minD,maxD)); }
 const fmtMonthYear = new Intl.DateTimeFormat("fr-FR",{month:"long",year:"numeric"});
 const fmtDM = new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"short"});
+// Calcule le numéro de semaine ISO pour une date donnée
 function getISOWeek(date){ const d=new Date(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate())); const dayNum=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-dayNum); const yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1)); return Math.ceil(((d-yearStart)/MS_DAY+1)/7); }
 
+// Limites de la frise chronologique (arrondies à des semaines complètes)
 const TIMELINE_START = startOfWeek(new Date(2025, 8, 1));
 const TIMELINE_END   = endOfWeek(new Date(2026, 1, 28)); /* <-- bug corrigé (plus de "one:") */
 
-function eachWeekOfInterval(start,end){
-  const weeks=[]; let cur=startOfWeek(start); const endW=startOfWeek(end);
-  while(cur<=endW){ weeks.push(new Date(cur)); const next=new Date(cur); next.setDate(next.getDate()+7); cur=startOfWeek(next); if(weeks.length>400) break; }
-  return weeks;
-}
+ // Renvoie la liste des débuts de semaines entre deux dates incluses
+ function eachWeekOfInterval(start,end){
+   const weeks=[]; let cur=startOfWeek(start); const endW=startOfWeek(end);
+   while(cur<=endW){ weeks.push(new Date(cur)); const next=new Date(cur); next.setDate(next.getDate()+7); cur=startOfWeek(next); if(weeks.length>400) break; }
+   return weeks;
+ }
 
 /* Cache local */
+// Clé de stockage local pour persister l'état
 const LS_KEY = "gantt-sept2025-fev2026";
+// Récupère l'état sauvegardé depuis le localStorage
 function loadState(){ try{ const raw=localStorage.getItem(LS_KEY); return raw?JSON.parse(raw):null; }catch{ return null; } }
+// Enregistre l'état actuel dans le localStorage
 function saveState(state){ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch{} }
 
 /* Transfert via URL (#s=base64) */
+// Encodage/decodage base64 pour le transfert d'état via l'URL
 function b64Encode(str){ try{ return btoa(unescape(encodeURIComponent(str))); }catch{ return btoa(str);} }
 function b64Decode(str){ try{ return decodeURIComponent(escape(atob(str))); }catch{ return atob(str);} }
+// Permet d'importer un état depuis le hash de l'URL (#s=base64)
 (function importFromHash(){
   try{
     const h=location.hash;
@@ -71,6 +92,7 @@ function b64Decode(str){ try{ return decodeURIComponent(escape(atob(str))); }cat
   }catch(e){ console.warn("State-from-hash failed",e); }
 })();
 
+// Composant React interceptant les erreurs de rendu
 class ErrorBoundary extends React.Component{
   constructor(p){ super(p); this.state={error:null}; }
   static getDerivedStateFromError(e){ return {error:e}; }
@@ -85,10 +107,14 @@ class ErrorBoundary extends React.Component{
   }
 }
 
+// Palette de couleurs proposée pour les catégories et tâches
 const PALETTE=["#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9","#ef4444","#22c55e","#f59e0b","#64748b","#d946ef","#14b8a6","#a16207"];
 
+// Composant principal du planificateur
 function PlannerApp(){
+  // Tableau des semaines affichées dans la frise
   const weeks = useMemo(()=>eachWeekOfInterval(TIMELINE_START,TIMELINE_END),[]);
+  // Découpe des semaines par mois pour l'en-tête
   const monthSegments = useMemo(()=>{
     if(weeks.length===0) return [];
     const segs=[]; let currentLabel=fmtMonthYear.format(new Date(weeks[0].getTime()+MS_DAY*3)); let span=0;
@@ -96,11 +122,17 @@ function PlannerApp(){
     segs.push({label:currentLabel,span}); return segs;
   },[weeks]);
 
+  // État initial issu du cache local
   const initial = loadState();
+  // Liste des catégories affichées
   const [categories,setCategories] = useState(initial?.categories || []);
+  // Liste des tâches planifiées
   const [tasks,setTasks] = useState((initial?.tasks || []).map((t,i)=>({...t,row:typeof t.row==='number'?t.row:i})));
+  // Informations de synchronisation avec Supabase
   const [sync,setSync] = useState({status:'idle',ts:null,error:null});
+  // Affichage des outils de test
   const [showTests,setShowTests]=useState(false);
+  // Ouverture du panneau latéral
   const [panelOpen,setPanelOpen]=useState(false);
 
   /* Charger depuis Supabase */
@@ -445,6 +477,7 @@ function PlannerApp(){
   );
 }
 
+// Monte l'application React dans la page
 ReactDOM.createRoot(document.getElementById('root')).render(<PlannerApp />);
     </script>
   </body>
