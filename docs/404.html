@@ -4,25 +4,30 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Planning (sept. 2025 → fév. 2026)</title>
-    <!-- Tailwind CDN (pour prototypage ; génère automatiquement les classes présentes dans le DOM) -->
+    <!-- Tailwind CDN (prototypage sans build) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React 18 UMD + Babel pour transformer le JSX dans le navigateur (pas de build local nécessaire) -->
+    <!-- React 18 UMD + Babel (transpile JSX dans le navigateur) -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <meta name="color-scheme" content="light" />
     <style>
-      /* Police système propre */
       html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
     </style>
   </head>
   <body>
     <div id="root"></div>
 
-    <!-- Votre app React, telle quelle, transpillée par Babel dans le navigateur -->
-    <script type="text/babel">
+    <!-- Votre app React, transpillée par Babel dans le navigateur -->
+    <script type="text/babel" data-presets="env,react">
 /* ==== Début du code React (adapté pour exécution sans import) ==== */
 const { useEffect, useMemo, useState } = React;
+
+// ------- (Optionnel) Persistance côté serveur -------
+// Laissez à null pour GitHub Pages (localStorage uniquement).
+// Si vous déployez une micro-API (ex: https://api.votredomaine.com/state),
+// mettez l'URL ci-dessous et assurez le CORS côté API.
+const API_URL = null; // ex: 'https://api.votredomaine.com/state'
 
 const WEEK_STARTS_ON = 1;
 const MS_DAY = 24 * 60 * 60 * 1000;
@@ -56,7 +61,7 @@ const LS_KEY = "gantt-sept2025-fev2026";
 function loadState() { try { if (typeof window === "undefined" || !("localStorage" in window)) return null; const raw = window.localStorage.getItem(LS_KEY); if (!raw) return null; return JSON.parse(raw); } catch (_) { return null; } }
 function saveState(state) { try { if (typeof window === "undefined" || !("localStorage" in window)) return; window.localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) {} }
 
-class ErrorBoundary extends React.Component { constructor(p){ super(p); this.state = { error: null }; } static getDerivedStateFromError(e){ return { error: e }; } componentDidCatch(e,i){ console.error(e,i); } render(){ if (this.state.error) { return (<div style={{ padding: 16 }} className="mx-auto max-w-[900px] rounded-xl border border-red-200 bg-red-50 text-red-800"><div className="font-semibold">Une erreur est survenue.</div><div className="text-sm mt-1">{String(this.state.error?.message || this.state.error)}</div><div className="text-xs mt-2 opacity-70">Corrigé dans la dernière version — réessayez.</div></div>); } return this.props.children; } }
+class ErrorBoundary extends React.Component { constructor(p){ super(p); this.state = { error: null }; } static getDerivedStateFromError(e){ return { error: e }; } componentDidCatch(e,i){ console.error(e,i); } render(){ if (this.state.error) { const msg = (this.state.error && this.state.error.message) || this.state.error; return (<div style={{ padding: 16 }} className="mx-auto max-w-[900px] rounded-xl border border-red-200 bg-red-50 text-red-800"><div className="font-semibold">Une erreur est survenue.</div><div className="text-sm mt-1">{String(msg)}</div><div className="text-xs mt-2 opacity-70">Corrigé dans la dernière version — réessayez.</div></div>); } return this.props.children; } }
 
 const PALETTE = ["#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9","#ef4444","#22c55e","#f59e0b","#64748b","#d946ef","#14b8a6","#a16207"]; 
 
@@ -65,12 +70,35 @@ function PlannerApp(){
   const monthSegments = useMemo(() => { if (weeks.length === 0) return []; const segs = []; let currentLabel = fmtMonthYear.format(new Date(weeks[0].getTime() + MS_DAY * 3)); let span = 0; for (let i=0;i<weeks.length;i++){ const label = fmtMonthYear.format(new Date(weeks[i].getTime() + MS_DAY * 3)); if (label === currentLabel) span++; else { segs.push({label: currentLabel, span}); currentLabel = label; span = 1; } } segs.push({label: currentLabel, span}); return segs; }, [weeks]);
 
   const initial = loadState();
-  const [categories, setCategories] = useState(initial?.categories || []);
-  const [tasks, setTasks] = useState((initial?.tasks || []).map((t,i)=>({...t, row: typeof t.row === 'number' ? t.row : i })));
+  const [categories, setCategories] = useState(initial && initial.categories ? initial.categories : []);
+  const [tasks, setTasks] = useState((initial && initial.tasks ? initial.tasks : []).map((t,i)=>({...t, row: typeof t.row === 'number' ? t.row : i })));
   const [showTests, setShowTests] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
 
+  // Charger l'état depuis l'API (si activée)
+  useEffect(()=>{
+    if(!API_URL) return;
+    fetch(API_URL).then(r=>r.json()).then(s=>{
+      if(s && typeof s === 'object'){
+        setCategories(Array.isArray(s.categories)? s.categories : []);
+        setTasks(Array.isArray(s.tasks)? s.tasks.map((t,i)=>({...t, row: typeof t.row==='number'? t.row : i })) : []);
+      }
+    }).catch(()=>{});
+  },[]);
+
+  // Sauvegarde locale (cache navigateur)
   useEffect(()=>{ saveState({ categories, tasks }); },[categories,tasks]);
+
+  // Sauvegarde serveur (si API activée) avec petit debounce
+  useEffect(()=>{
+    if(!API_URL) return;
+    const payload = { categories, tasks };
+    const t = setTimeout(()=>{
+      fetch(API_URL, { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) }).catch(()=>{});
+    }, 500);
+    return ()=> clearTimeout(t);
+  }, [categories, tasks]);
+
   useEffect(()=>{ function onKey(e){ if(e.key==='Escape') setPanelOpen(false);} if(panelOpen) window.addEventListener('keydown', onKey); return ()=> window.removeEventListener('keydown', onKey); },[panelOpen]);
 
   const [newTask, setNewTask] = useState({ title: "", startISO: toISODate(TIMELINE_START), endISO: toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7)), range: `${toISODate(TIMELINE_START)} → ${toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7))}`, color: "#2563eb", categoryId: "", newCategoryName: "" });
@@ -82,9 +110,9 @@ function PlannerApp(){
 
   function getOrCreateCategoryByName(name, colorOverride){ let c = categories.find(x=>x.name===name); if(c) return c; const color = colorOverride || PALETTE[categories.length % PALETTE.length]; c = { id: `c-${Date.now()}-${Math.random().toString(36).slice(2,6)}`, name, color, enabled: true }; setCategories(prev=>[...prev,c]); return c; }
 
-  function addTask(e){ e.preventDefault(); const s = new Date(newTask.startISO); const eDate = new Date(newTask.endISO); if(s>eDate){ alert("La date de début doit précéder la date de fin."); return; } let chosenCat = categories.find(c=>c.id===newTask.categoryId); if(!chosenCat && newTask.newCategoryName.trim()){ const existingByName = categories.find(c=>c.name.toLowerCase()===newTask.newCategoryName.trim().toLowerCase()); if(existingByName) chosenCat = existingByName; else chosenCat = getOrCreateCategoryByName(newTask.newCategoryName.trim(), newTask.color); } const color = chosenCat ? chosenCat.color : newTask.color; const t = { id:`t-${Date.now()}`, title: newTask.title || (chosenCat ? chosenCat.name : "Sans titre"), startISO: toISODate(clampDate(s, TIMELINE_START, TIMELINE_END)), endISO: toISODate(clampDate(eDate, TIMELINE_START, TIMELINE_END)), color, categoryId: chosenCat?.id, actions: [], sourceLabel: null, row: tasks.length, notes: [] }; setTasks(prev=>[...prev,t]); }
+  function addTask(e){ e.preventDefault(); const s = new Date(newTask.startISO); const eDate = new Date(newTask.endISO); if(s>eDate){ alert("La date de début doit précéder la date de fin."); return; } let chosenCat = categories.find(c=>c.id===newTask.categoryId); if(!chosenCat && newTask.newCategoryName.trim()){ const existingByName = categories.find(c=>c.name.toLowerCase()===newTask.newCategoryName.trim().toLowerCase()); if(existingByName) chosenCat = existingByName; else chosenCat = getOrCreateCategoryByName(newTask.newCategoryName.trim(), newTask.color); } const color = chosenCat ? chosenCat.color : newTask.color; const t = { id:`t-${Date.now()}`, title: newTask.title || (chosenCat ? chosenCat.name : "Sans titre"), startISO: toISODate(clampDate(s, TIMELINE_START, TIMELINE_END)), endISO: toISODate(clampDate(eDate, TIMELINE_START, TIMELINE_END)), color, categoryId: chosenCat ? chosenCat.id : undefined, actions: [], sourceLabel: null, row: tasks.length, notes: [] }; setTasks(prev=>[...prev,t]); }
 
-  function removeTask(id){ setTasks(prev=>{ const removed = prev.find(t=>t.id===id); const next = prev.filter(t=>t.id!==id); if(removed?.categoryId){ const stillUsed = next.some(t=>t.categoryId===removed.categoryId); if(!stillUsed) setCategories(cprev=>cprev.filter(c=>c.id!==removed.categoryId)); } return next; }); }
+  function removeTask(id){ setTasks(prev=>{ const removed = prev.find(t=>t.id===id); const next = prev.filter(t=>t.id!==id); if(removed && removed.categoryId){ const stillUsed = next.some(t=>t.categoryId===removed.categoryId); if(!stillUsed) setCategories(cprev=>cprev.filter(c=>c.id!==removed.categoryId)); } return next; }); }
   function removeCategory(id){ const cat = categories.find(c=>c.id===id); if(!cat) return; setTasks(prev=>prev.filter(t=>t.categoryId!==id)); setCategories(prev=>prev.filter(c=>c.id!==id)); }
   function toggleCategory(id){ setCategories(prev=>prev.map(c=> (c.id===id ? { ...c, enabled: !(c.enabled !== false)} : c))); }
   function updateCategoryColor(id, newColor){ setCategories(prev=> prev.map(c=> (c.id===id ? { ...c, color:newColor } : c))); setTasks(prev=> prev.map(t=> (t.categoryId===id ? { ...t, color:newColor } : t))); }
@@ -109,7 +137,7 @@ function PlannerApp(){
   const rowsCount = useMemo(()=> Math.max(0, ...tasksToShow.map(t=> (typeof t.row==='number' ? t.row : 0))) + 1, [tasksToShow]);
   const rowsArray = useMemo(()=> Array.from({length: rowsCount}, (_,i)=>i), [rowsCount]);
 
-  const testResults = useMemo(()=>{ const results = []; const t1 = TIMELINE_START.getDay()===1 && TIMELINE_START.getDate()===1 && TIMELINE_START.getMonth()===8; results.push({ name:"TIMELINE_START est lun 1 sept. 2025", pass:t1, details: toISODate(TIMELINE_START)}); const weeksCountOk = weeks.length>0 && weeks.length<60; results.push({ name:"Nombre de semaines plausible", pass:weeksCountOk, details:String(weeks.length)}); const sumSpan = monthSegments.reduce((a,b)=>a+b.span,0); results.push({ name:"Somme spans == nb semaines", pass: sumSpan===weeks.length, details: `${sumSpan} vs ${weeks.length}`}); const allEnabledByDefault = categories.every(c=> c.enabled !== false); results.push({ name:"Catégories actives par défaut", pass: allEnabledByDefault, details: String(allEnabledByDefault)}); const w0 = weekIndexOf(TIMELINE_START)===0; results.push({ name:"weekIndexOf(TIMELINE_START) == 0", pass:w0, details:String(w0)}); const spanOk = tasks.every(t=> { const g = taskToGrid(t); return g && g.span>=1; }); results.push({ name:"Span ≥ 1 pour toutes les tâches", pass: spanOk, details: String(spanOk)}); const noDupIso = weeks.every((w,i,a)=> i===0 || getISOWeek(w) !== getISOWeek(a[i-1])); results.push({ name:"Semaines ISO sans doublon consécutif", pass: noDupIso, details: String(noDupIso) }); const hasDangling = (()=>{ const catIds = new Set(categories.map(c=>c.id)); return tasks.some(t=> t.categoryId && !catIds.has(t.categoryId)); })(); results.push({ name:"Pas de référence de catégorie orpheline", pass: !hasDangling, details: String(!hasDangling)}); results.push({ name:"resetAll() est une fonction", pass: typeof resetAll === 'function', details: typeof resetAll }); const hexOk = categories.every(c=> /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(String(c.color || ""))); results.push({ name:"Couleurs catégories au format hex", pass: hexOk, details: String(hexOk)}); const showCountOk = tasksToShow.length <= tasks.length; results.push({ name:"Filtre ≤ total", pass: showCountOk, details: `${tasksToShow.length}/${tasks.length}`}); const taskColorsOk = tasks.every(t=> /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(String(t.color || ""))); results.push({ name:"Couleurs tâches au format hex", pass: taskColorsOk, details: String(taskColorsOk) }); const catColorMap = new Map(categories.map(c=>[c.id,c.color])); const syncOk = tasks.every(t=> !t.categoryId || t.color === catColorMap.get(t.categoryId)); results.push({ name:"Tâches sync avec couleur catégorie", pass: syncOk, details: String(syncOk) }); const colsOk = weeks.length>0 && typeof gridCols === 'string'; results.push({ name:"Grille OK", pass: colsOk, details: gridCols}); const p = parseDateRangeFromText("2025-09-06 → 2025-09-22"); const parseOk = !!p && p.startISO === "2025-09-06" && p.endISO === "2025-09-22"; results.push({ name:"Parse plage date", pass: parseOk, details: p ? `${p.startISO}→${p.endISO}` : "null"}); const notesArrOk = tasks.every(t=> Array.isArray(t.notes || [])); results.push({ name:"Notes: tableau présent", pass: notesArrOk, details: String(notesArrOk)}); return results; },[weeks.length, monthSegments, categories, tasks, tasksToShow.length, gridCols]);
+  const testResults = useMemo(()=>{ const results = []; const t1 = TIMELINE_START.getDay()===1 && TIMELINE_START.getDate()===1 && TIMELINE_START.getMonth()===8; results.push({ name:"TIMELINE_START est lun 1 sept. 2025", pass:t1, details: toISODate(TIMELINE_START)}); const weeksCountOk = weeks.length>0 && weeks.length<60; results.push({ name:"Nombre de semaines plausible", pass:weeksCountOk, details:String(weeks.length)}); const sumSpan = monthSegments.reduce((a,b)=>a+b.span,0); results.push({ name:"Somme spans == nb semaines", pass: sumSpan===weeks.length, details: `${sumSpan} vs ${weeks.length}`}); const allEnabledByDefault = categories.every(c=> c.enabled !== false); results.push({ name:"Catégories actives par défaut", pass: allEnabledByDefault, details: String(allEnabledByDefault)}); const w0 = weekIndexOf(TIMELINE_START)===0; results.push({ name:"weekIndexOf(TIMELINE_START) == 0", pass:w0, details:String(w0)}); const spanOk = tasks.every(t=> { const g = taskToGrid(t); return g && g.span>=1; }); results.push({ name:"Span ≥ 1 pour toutes les tâches", pass: spanOk, details: String(spanOk)}); const noDupIso = weeks.every((w,i,a)=> i===0 || getISOWeek(w) !== getISOWeek(a[i-1])); results.push({ name:"Semaines ISO sans doublon consécutif", pass: noDupIso, details: String(noDupIso) }); const hasDangling = (function(){ const catIds = new Set(categories.map(c=>c.id)); return tasks.some(t=> t.categoryId && !catIds.has(t.categoryId)); })(); results.push({ name:"Pas de référence de catégorie orpheline", pass: !hasDangling, details: String(!hasDangling)}); results.push({ name:"resetAll() est une fonction", pass: typeof resetAll === 'function', details: typeof resetAll }); const hexOk = categories.every(c=> /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(String(c.color || ""))); results.push({ name:"Couleurs catégories au format hex", pass: hexOk, details: String(hexOk)}); const showCountOk = tasksToShow.length <= tasks.length; results.push({ name:"Filtre ≤ total", pass: showCountOk, details: `${tasksToShow.length}/${tasks.length}`}); const taskColorsOk = tasks.every(t=> /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(String(t.color || ""))); results.push({ name:"Couleurs tâches au format hex", pass: taskColorsOk, details: String(taskColorsOk) }); const catColorMap = new Map(categories.map(c=>[c.id,c.color])); const syncOk = tasks.every(t=> !t.categoryId || t.color === catColorMap.get(t.categoryId)); results.push({ name:"Tâches sync avec couleur catégorie", pass: syncOk, details: String(syncOk) }); const colsOk = weeks.length>0 && typeof gridCols === 'string'; results.push({ name:"Grille OK", pass: colsOk, details: gridCols}); const p = parseDateRangeFromText("2025-09-06 → 2025-09-22"); const parseOk = !!p && p.startISO === "2025-09-06" && p.endISO === "2025-09-22"; results.push({ name:"Parse plage date", pass: parseOk, details: p ? `${p.startISO}→${p.endISO}` : "null"}); const notesArrOk = tasks.every(t=> Array.isArray(t.notes || [])); results.push({ name:"Notes: tableau présent", pass: notesArrOk, details: String(notesArrOk)}); return results; },[weeks.length, monthSegments, categories, tasks, tasksToShow.length, gridCols]);
 
   return (
     <ErrorBoundary>
@@ -201,12 +229,70 @@ function PlannerApp(){
           )}
 
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm h-[82vh] max-h-[82vh] flex flex-col min-h-0">
+            {/* En-tête mois/semaines */}
             <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90">
-              <div style={{ display:'grid', gridTemplateColumns:`repeat(${/* weeks.length */ 0}, 44px)` }}></div>
+              <div style={{ display:'grid', gridTemplateColumns:`repeat(${weeks.length}, ${colWidthPx}px)` }}>
+                {monthSegments.map((m,i)=>(
+                  <div key={`${m.label}-${i}`} className="flex items-center justify-center border-r border-slate-100 px-2 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600" style={{ gridColumn:`span ${m.span} / span ${m.span}` }}>
+                    {m.label}
+                  </div>
+                ))}
+              </div>
+              <div className="border-t border-slate-100" style={{ display:'grid', gridTemplateColumns:`repeat(${weeks.length}, ${colWidthPx}px)` }}>
+                {weeks.map((w,i)=>(
+                  <div key={i} className="flex items-center justify-center border-r border-slate-100 px-1 py-1 text-[10px] text-slate-500" title={`${fmtDM.format(w)} → ${fmtDM.format(new Date(w.getTime()+MS_DAY*6))}`}>
+                    S{String(getISOWeek(w)).padStart(2,'0')}
+                  </div>
+                ))}
+              </div>
             </div>
-            {/* L’entête réelle est rendue par le composant ci-dessous */}
+
+            {/* Corps : lignes + tâches */}
             <div className="min-h-0 flex-1 overflow-auto">
-              {/* Les lignes de tâches sont rendues dynamiquement */}
+              {rowsArray.map((row)=> (
+                <div key={row} className="relative border-b border-slate-100" style={gridStyle}>
+                  {weeks.map((_,i)=>(<div key={i} className={(i%2===0?"border-slate-50":"border-slate-100")+" h-12 border-r"} />))}
+                  {tasksToShow.filter(t=> (t.row ?? 0)===row).map((t)=>{ const { startIdx, span } = taskToGrid(t); const leftPx = startIdx*colWidthPx; const widthPx = span*colWidthPx; const isDragging = drag && drag.taskId===t.id; let leftAdj = leftPx; let widthAdj = widthPx; if(isDragging){ if(drag.type==='move') leftAdj = leftPx + (drag.dx||0); if(drag.type==='right') widthAdj = Math.max(colWidthPx, widthPx + (drag.dx||0)); if(drag.type==='left'){ const w = Math.max(colWidthPx, widthPx - (drag.dx||0)); leftAdj = leftPx + (drag.dx||0); widthAdj = w; } } const isNarrow = widthAdj < 64; const noteCount = Array.isArray(t.notes) ? t.notes.length : 0; return (
+                    <div key={t.id} className="pointer-events-none absolute left-0 top-0 h-12 w-full">
+                      <div className="pointer-events-auto absolute top-1 h-10 select-none rounded-xl shadow-sm group" style={{ left:leftAdj, width:widthAdj, backgroundColor:t.color }}>
+                        {noteCount>0 && <span className="absolute -top-1 -left-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border border-white bg-slate-900 px-1 text-[10px] font-semibold text-white">{noteCount}</span>}
+                        <div className="flex h-full items-center gap-1 pl-1 pr-2 text-[11px] text-slate-700">
+                          {!isNarrow && <span className="inline-block h-2 w-2 rounded" style={{ backgroundColor:t.color }} />}
+                          <span className="truncate min-w-0 font-medium" title={`${t.title} — ${t.startISO} → ${t.endISO}`}>{t.title}</span>
+                          <div className="ml-auto hidden items-center gap-1 group-hover:flex">
+                            <button onClick={()=>changeRow(t.id,-1)} className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" title="Monter">↑</button>
+                            <button onClick={()=>changeRow(t.id,+1)} className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" title="Descendre">↓</button>
+                            <button onClick={()=>openNotes(t.id)} className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" title="Notes">💬</button>
+                            <button onClick={()=>removeTask(t.id)} className="rounded border border-red-200 bg-white px-1 text-[10px] text-red-700 hover:bg-red-50" title="Supprimer">🗑</button>
+                          </div>
+                        </div>
+                        <div onPointerDown={(e)=>setDrag({ taskId:t.id, type:'move', startX:e.clientX, dx:0 })} className="absolute inset-y-0 left-2 w-8 cursor-grab" title="Déplacer" />
+                        <div onPointerDown={(e)=>setDrag({ taskId:t.id, type:'left', startX:e.clientX, dx:0 })} className="absolute inset-y-0 left-0 w-2 cursor-w-resize" title="Ajuster début" />
+                        <div onPointerDown={(e)=>setDrag({ taskId:t.id, type:'right', startX:e.clientX, dx:0 })} className="absolute inset-y-0 right-0 w-2 cursor-e-resize" title="Ajuster fin" />
+                        {noteEditor.taskId===t.id && (
+                          <div className="absolute right-0 top-[110%] z-20 w-[280px] rounded-xl border border-slate-200 bg-white p-3 text-[12px] shadow-lg">
+                            <div className="mb-2 flex items-center justify-between"><div className="font-medium">Notes</div><button className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" onClick={()=>setNoteEditor({ taskId:null, draft:"" })}>✕</button></div>
+                            <div className="max-h-40 space-y-2 overflow-y-auto">
+                              {(t.notes||[]).length===0 && <div className="text-slate-500">Aucune note</div>}
+                              {(t.notes||[]).map((n,idx)=>(
+                                <div key={idx} className="flex items-start gap-2">
+                                  <div className="mt-[2px]">•</div>
+                                  <div className="min-w-0 flex-1 break-words">{n}</div>
+                                  <button className="rounded border border-red-200 bg-white px-1 text-[10px] text-red-700 hover:bg-red-50" onClick={()=>deleteNote(t.id, idx)}>🗑</button>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="mt-2 flex items-center gap-2">
+                              <input value={noteEditor.draft} onChange={(e)=>setNoteEditor(s=>({...s, draft:e.target.value}))} placeholder="Ajouter une note" className="flex-1 rounded-lg border border-slate-300 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-slate-400" />
+                              <button className="rounded-lg bg-slate-900 px-2 py-1 text-xs font-medium text-white hover:bg-slate-800" onClick={()=>addNoteToTask(t.id, noteEditor.draft)}>Ajouter</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ); })}
+                </div>
+              ))}
             </div>
           </div>
         </div>
