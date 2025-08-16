@@ -231,24 +231,26 @@ function PlannerApp(){
   /* UI */
   return (
     <ErrorBoundary>
+      {panelOpen && (
+        <div className="fixed inset-0 z-50 bg-black/20" onClick={()=>setPanelOpen(false)}>
+          <div className="absolute left-4 top-4 w-64 rounded-xl border border-slate-200 bg-white p-4 shadow-lg flex flex-col gap-2" onClick={e=>e.stopPropagation()}>
+            <button onClick={resetAll} className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-50">Réinitialiser tout</button>
+            <span className="text-xs rounded-full border px-2 py-1" style={{borderColor:'#cbd5e1', color: sync.status==='error'? '#b91c1c' : '#334155', backgroundColor: sync.status==='saving'? '#f1f5f9' : '#fff' }}>
+              {sync.status==='loading' && 'Synchro…'}
+              {sync.status==='saving'  && 'Enregistrement…'}
+              {sync.status==='ok'      && (sync.ts ? `Synchro OK · ${new Date(sync.ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}` : 'Synchro OK')}
+              {sync.status==='error'   && 'Erreur de synchro'}
+            </span>
+            <button onClick={()=>{ const data=JSON.stringify({categories,tasks}); navigator.clipboard.writeText(data).then(()=>alert('État copié.')).catch(()=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([data],{type:'application/json'})); a.download='planner-state.json'; a.click(); }); setPanelOpen(false); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">Exporter</button>
+            <button onClick={()=>{ const t=prompt('Collez le JSON :'); if(!t) return; try{ const s=JSON.parse(t); setCategories(Array.isArray(s.categories)?s.categories:[]); setTasks(Array.isArray(s.tasks)? s.tasks.map((t,i)=>({...t,row:typeof t.row==='number'?t.row:i})) : []);}catch{ alert('JSON invalide'); } setPanelOpen(false); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">Importer</button>
+            <button onClick={()=>{ const url=location.origin+location.pathname+location.search+'#s='+b64Encode(JSON.stringify({categories,tasks})); window.open(url,'_blank'); setPanelOpen(false); }} className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">Nouveau (→ transfère)</button>
+          </div>
+        </div>
+      )}
       <div className="min-h-screen w-full bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
         <div className="mx-auto max-w-[1400px] px-4 py-4">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <button onClick={()=>setPanelOpen(true)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"><span style={{fontSize:18}}>☰</span> Planificateur</button>
-              <button onClick={resetAll} className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-50">Réinitialiser tout</button>
-              <span className="ml-2 text-xs rounded-full border px-2 py-1" style={{borderColor:'#cbd5e1', color: sync.status==='error'? '#b91c1c' : '#334155', backgroundColor: sync.status==='saving'? '#f1f5f9' : '#fff' }}>
-                {sync.status==='loading' && 'Synchro…'}
-                {sync.status==='saving'  && 'Enregistrement…'}
-                {sync.status==='ok'      && (sync.ts ? `Synchro OK · ${new Date(sync.ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}` : 'Synchro OK')}
-                {sync.status==='error'   && 'Erreur de synchro'}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={()=>{ const data=JSON.stringify({categories,tasks}); navigator.clipboard.writeText(data).then(()=>alert('État copié.')).catch(()=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([data],{type:'application/json'})); a.download='planner-state.json'; a.click(); }); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">Exporter</button>
-              <button onClick={()=>{ const t=prompt('Collez le JSON :'); if(!t) return; try{ const s=JSON.parse(t); setCategories(Array.isArray(s.categories)?s.categories:[]); setTasks(Array.isArray(s.tasks)? s.tasks.map((t,i)=>({...t,row:typeof t.row==='number'?t.row:i})) : []);}catch{ alert('JSON invalide'); } }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">Importer</button>
-              <button onClick={()=>{ const url=location.origin+location.pathname+location.search+'#s='+b64Encode(JSON.stringify({categories,tasks})); window.open(url,'_blank'); }} className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">Nouveau (→ transfère)</button>
-            </div>
+          <div className="mb-4">
+            <button onClick={()=>setPanelOpen(true)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"><span style={{fontSize:18}}>☰</span> Planificateur</button>
           </div>
 
           {categories.length>0 && (
