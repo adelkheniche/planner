@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Planning (sept. 2025 → fév. 2026)</title>
+    <!-- Tailwind CDN (pour prototypage ; génère automatiquement les classes présentes dans le DOM) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React 18 UMD + Babel pour transformer le JSX dans le navigateur (pas de build local nécessaire) -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <meta name="color-scheme" content="light" />
+    <style>
+      /* Police système propre */
+      html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <!-- Votre app React, telle quelle, transpillée par Babel dans le navigateur -->
+    <script type="text/babel">
+/* ==== Début du code React (adapté pour exécution sans import) ==== */
+const { useEffect, useMemo, useState } = React;
+
+const WEEK_STARTS_ON = 1;
+const MS_DAY = 24 * 60 * 60 * 1000;
+function startOfWeek(d, weekStartsOn = WEEK_STARTS_ON) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); const day = x.getDay(); const diff = (day - weekStartsOn + 7) % 7; x.setDate(x.getDate() - diff); x.setHours(0,0,0,0); return x; }
+function endOfWeek(d, weekStartsOn = WEEK_STARTS_ON) { const s = startOfWeek(d, weekStartsOn); const e = new Date(s.getTime() + MS_DAY * 6); e.setHours(23,59,59,999); return e; }
+function clampDate(d, minD, maxD) { if (d < minD) return new Date(minD); if (d > maxD) return new Date(maxD); return d; }
+function toISODate(d) { const yyyy = d.getFullYear(); const mm = String(d.getMonth() + 1).padStart(2, "0"); const dd = String(d.getDate()).padStart(2, "0"); return `${yyyy}-${mm}-${dd}`; }
+function addWeeksISO(iso, n, minD, maxD) { const d = new Date(iso); d.setDate(d.getDate() + 7 * n); return toISODate(clampDate(d, minD, maxD)); }
+const fmtMonthYear = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+const fmtDM = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" });
+function getISOWeek(date) { const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())); const dayNum = d.getUTCDay() || 7; d.setUTCDate(d.getUTCDate() + 4 - dayNum); const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1)); return Math.ceil(((d - yearStart) / MS_DAY + 1) / 7); }
+
+const TIMELINE_START = startOfWeek(new Date(2025, 8, 1));
+const TIMELINE_END = endOfWeek(new Date(2026, 1, 28));
+
+function eachWeekOfInterval(start, end) {
+  const weeks = [];
+  let cur = startOfWeek(start);
+  const endW = startOfWeek(end);
+  while (cur <= endW) {
+    weeks.push(new Date(cur));
+    const next = new Date(cur);
+    next.setDate(next.getDate() + 7);
+    cur = startOfWeek(next);
+    if (weeks.length > 400) break;
+  }
+  return weeks;
+}
+
+const LS_KEY = "gantt-sept2025-fev2026";
+function loadState() { try { if (typeof window === "undefined" || !("localStorage" in window)) return null; const raw = window.localStorage.getItem(LS_KEY); if (!raw) return null; return JSON.parse(raw); } catch (_) { return null; } }
+function saveState(state) { try { if (typeof window === "undefined" || !("localStorage" in window)) return; window.localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) {} }
+
+class ErrorBoundary extends React.Component { constructor(p){ super(p); this.state = { error: null }; } static getDerivedStateFromError(e){ return { error: e }; } componentDidCatch(e,i){ console.error(e,i); } render(){ if (this.state.error) { return (<div style={{ padding: 16 }} className="mx-auto max-w-[900px] rounded-xl border border-red-200 bg-red-50 text-red-800"><div className="font-semibold">Une erreur est survenue.</div><div className="text-sm mt-1">{String(this.state.error?.message || this.state.error)}</div><div className="text-xs mt-2 opacity-70">Corrigé dans la dernière version — réessayez.</div></div>); } return this.props.children; } }
+
+const PALETTE = ["#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9","#ef4444","#22c55e","#f59e0b","#64748b","#d946ef","#14b8a6","#a16207"]; 
+
+function PlannerApp(){
+  const weeks = useMemo(() => eachWeekOfInterval(TIMELINE_START, TIMELINE_END), []);
+  const monthSegments = useMemo(() => { if (weeks.length === 0) return []; const segs = []; let currentLabel = fmtMonthYear.format(new Date(weeks[0].getTime() + MS_DAY * 3)); let span = 0; for (let i=0;i<weeks.length;i++){ const label = fmtMonthYear.format(new Date(weeks[i].getTime() + MS_DAY * 3)); if (label === currentLabel) span++; else { segs.push({label: currentLabel, span}); currentLabel = label; span = 1; } } segs.push({label: currentLabel, span}); return segs; }, [weeks]);
+
+  const initial = loadState();
+  const [categories, setCategories] = useState(initial?.categories || []);
+  const [tasks, setTasks] = useState((initial?.tasks || []).map((t,i)=>({...t, row: typeof t.row === 'number' ? t.row : i })));
+  const [showTests, setShowTests] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+
+  useEffect(()=>{ saveState({ categories, tasks }); },[categories,tasks]);
+  useEffect(()=>{ function onKey(e){ if(e.key==='Escape') setPanelOpen(false);} if(panelOpen) window.addEventListener('keydown', onKey); return ()=> window.removeEventListener('keydown', onKey); },[panelOpen]);
+
+  const [newTask, setNewTask] = useState({ title: "", startISO: toISODate(TIMELINE_START), endISO: toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7)), range: `${toISODate(TIMELINE_START)} → ${toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7))}`, color: "#2563eb", categoryId: "", newCategoryName: "" });
+
+  function weekIndexOf(date){ const s = startOfWeek(clampDate(date, TIMELINE_START, TIMELINE_END)); const idx = Math.round((s.getTime() - TIMELINE_START.getTime()) / (MS_DAY * 7)); return Math.max(0, Math.min(weeks.length - 1, idx)); }
+  function taskToGrid(task){ const start = new Date(task.startISO); const end = new Date(task.endISO); const startIdx = weekIndexOf(start); const endIdx = weekIndexOf(end); const span = Math.max(1, endIdx-startIdx+1); return { startIdx, span }; }
+
+  function parseDateRangeFromText(text){ if(typeof text!=="string") return null; const raw=text.trim(); if(!raw) return null; let sep="→"; let idx=raw.indexOf("→"); if(idx<0){ const cand=[" — "," – "," to "," au "," -> "," - "]; for(const c of cand){ const j=raw.indexOf(c); if(j>=0){ sep=c; idx=j; break; } } } if(idx<0) return null; const a=raw.slice(0,idx).trim(); const b=raw.slice(idx+sep.length).trim(); function isISO(x){ return x && x.length===10 && x[4]==='-' && x[7]==='-' && !isNaN(Date.parse(x)); } if(!isISO(a)||!isISO(b)) return null; const s=clampDate(new Date(a), TIMELINE_START, TIMELINE_END); const e=clampDate(new Date(b), TIMELINE_START, TIMELINE_END); return { startISO: toISODate(s), endISO: toISODate(e) }; }
+
+  function getOrCreateCategoryByName(name, colorOverride){ let c = categories.find(x=>x.name===name); if(c) return c; const color = colorOverride || PALETTE[categories.length % PALETTE.length]; c = { id: `c-${Date.now()}-${Math.random().toString(36).slice(2,6)}`, name, color, enabled: true }; setCategories(prev=>[...prev,c]); return c; }
+
+  function addTask(e){ e.preventDefault(); const s = new Date(newTask.startISO); const eDate = new Date(newTask.endISO); if(s>eDate){ alert("La date de début doit précéder la date de fin."); return; } let chosenCat = categories.find(c=>c.id===newTask.categoryId); if(!chosenCat && newTask.newCategoryName.trim()){ const existingByName = categories.find(c=>c.name.toLowerCase()===newTask.newCategoryName.trim().toLowerCase()); if(existingByName) chosenCat = existingByName; else chosenCat = getOrCreateCategoryByName(newTask.newCategoryName.trim(), newTask.color); } const color = chosenCat ? chosenCat.color : newTask.color; const t = { id:`t-${Date.now()}`, title: newTask.title || (chosenCat ? chosenCat.name : "Sans titre"), startISO: toISODate(clampDate(s, TIMELINE_START, TIMELINE_END)), endISO: toISODate(clampDate(eDate, TIMELINE_START, TIMELINE_END)), color, categoryId: chosenCat?.id, actions: [], sourceLabel: null, row: tasks.length, notes: [] }; setTasks(prev=>[...prev,t]); }
+
+  function removeTask(id){ setTasks(prev=>{ const removed = prev.find(t=>t.id===id); const next = prev.filter(t=>t.id!==id); if(removed?.categoryId){ const stillUsed = next.some(t=>t.categoryId===removed.categoryId); if(!stillUsed) setCategories(cprev=>cprev.filter(c=>c.id!==removed.categoryId)); } return next; }); }
+  function removeCategory(id){ const cat = categories.find(c=>c.id===id); if(!cat) return; setTasks(prev=>prev.filter(t=>t.categoryId!==id)); setCategories(prev=>prev.filter(c=>c.id!==id)); }
+  function toggleCategory(id){ setCategories(prev=>prev.map(c=> (c.id===id ? { ...c, enabled: !(c.enabled !== false)} : c))); }
+  function updateCategoryColor(id, newColor){ setCategories(prev=> prev.map(c=> (c.id===id ? { ...c, color:newColor } : c))); setTasks(prev=> prev.map(t=> (t.categoryId===id ? { ...t, color:newColor } : t))); }
+
+  function resetAll(){ try{ if(typeof window!=="undefined" && "localStorage" in window) window.localStorage.removeItem(LS_KEY);}catch(_){ } setPanelOpen(false); setCategories([]); setTasks([]); setNewTask({ title: "", startISO: toISODate(TIMELINE_START), endISO: toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7)), range: `${toISODate(TIMELINE_START)} → ${toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7))}`, color: "#2563eb", categoryId:"", newCategoryName:""}); }
+
+  const enabledCategoryIds = useMemo(()=> new Set(categories.filter(c=>c.enabled!==false).map(c=>c.id)),[categories]);
+  const tasksToShow = useMemo(()=> { if(!categories.length) return tasks; return tasks.filter(t=> (!t.categoryId ? true : enabledCategoryIds.has(t.categoryId))); },[tasks,categories,enabledCategoryIds]);
+
+  const colWidthPx = 44; const gridCols = `repeat(${weeks.length}, ${colWidthPx}px)`; const gridStyle = { display:'grid', gridTemplateColumns:gridCols };
+
+  const [drag, setDrag] = useState(null);
+  useEffect(()=>{ if(!drag) return; function onMove(e){ setDrag(d=> (d ? { ...d, dx: e.clientX - d.startX } : d)); } function onUp(){ setTasks(prev=>{ const d = drag; if(!d) return prev; const idx = prev.findIndex(t=>t.id===d.taskId); if(idx<0) return prev; const t = prev[idx]; const { span } = taskToGrid(t); const deltaWeeks = Math.round((d.dx || 0)/colWidthPx); if(deltaWeeks===0) return prev.slice(); if(d.type==='move'){ const ns = addWeeksISO(t.startISO, deltaWeeks, TIMELINE_START, TIMELINE_END); const ne = addWeeksISO(t.endISO, deltaWeeks, TIMELINE_START, TIMELINE_END); const updated = { ...t, startISO: ns, endISO: ne }; const copy = prev.slice(); copy[idx]=updated; return copy; } if(d.type==='right'){ const ne = addWeeksISO(t.endISO, deltaWeeks, TIMELINE_START, TIMELINE_END); const newT = new Date(ne); const sT = startOfWeek(new Date(t.startISO)); const eT = startOfWeek(newT); const newSpan = Math.max(1, Math.round((eT - sT)/(MS_DAY*7)) + 1); const adjWeeks = newSpan - span; const neAdj = addWeeksISO(t.endISO, adjWeeks, TIMELINE_START, TIMELINE_END); const updated = { ...t, endISO: neAdj }; const copy = prev.slice(); copy[idx]=updated; return copy; } if(d.type==='left'){ let ns = addWeeksISO(t.startISO, deltaWeeks, TIMELINE_START, TIMELINE_END); const sT = startOfWeek(new Date(ns)); const eT = startOfWeek(new Date(t.endISO)); let newSpan = Math.max(1, Math.round((eT - sT)/(MS_DAY*7)) + 1); if(newSpan<1) newSpan=1; const endIdx = weekIndexOf(new Date(t.endISO)); const startIdxNew = Math.max(0, endIdx - (newSpan - 1)); const nsDate = new Date(TIMELINE_START.getTime() + startIdxNew * 7 * MS_DAY); ns = toISODate(clampDate(nsDate, TIMELINE_START, TIMELINE_END)); const updated = { ...t, startISO: ns }; const copy = prev.slice(); copy[idx]=updated; return copy; } return prev; }); setDrag(null); } window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp); return ()=>{ window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); }; },[drag]);
+
+  function changeRow(id, delta){ setTasks(prev=> prev.map(t=> (t.id===id ? { ...t, row: Math.max(0, (t.row ?? 0) + delta)} : t))); }
+
+  const [noteEditor, setNoteEditor] = useState({ taskId: null, draft: "" });
+  function openNotes(taskId){ setNoteEditor({ taskId, draft: "" }); }
+  function addNoteToTask(taskId, text){ const v = (text||"").trim(); if(!v) return; setTasks(prev=> prev.map(t=> t.id===taskId ? { ...t, notes: [...(t.notes||[]), v] } : t)); setNoteEditor(s=> ({ taskId, draft: "" })); }
+  function deleteNote(taskId, idx){ setTasks(prev=> prev.map(t=> t.id===taskId ? { ...t, notes: (t.notes||[]).filter((_,i)=>i!==idx) } : t)); }
+
+  const rowsCount = useMemo(()=> Math.max(0, ...tasksToShow.map(t=> (typeof t.row==='number' ? t.row : 0))) + 1, [tasksToShow]);
+  const rowsArray = useMemo(()=> Array.from({length: rowsCount}, (_,i)=>i), [rowsCount]);
+
+  const testResults = useMemo(()=>{ const results = []; const t1 = TIMELINE_START.getDay()===1 && TIMELINE_START.getDate()===1 && TIMELINE_START.getMonth()===8; results.push({ name:"TIMELINE_START est lun 1 sept. 2025", pass:t1, details: toISODate(TIMELINE_START)}); const weeksCountOk = weeks.length>0 && weeks.length<60; results.push({ name:"Nombre de semaines plausible", pass:weeksCountOk, details:String(weeks.length)}); const sumSpan = monthSegments.reduce((a,b)=>a+b.span,0); results.push({ name:"Somme spans == nb semaines", pass: sumSpan===weeks.length, details: `${sumSpan} vs ${weeks.length}`}); const allEnabledByDefault = categories.every(c=> c.enabled !== false); results.push({ name:"Catégories actives par défaut", pass: allEnabledByDefault, details: String(allEnabledByDefault)}); const w0 = weekIndexOf(TIMELINE_START)===0; results.push({ name:"weekIndexOf(TIMELINE_START) == 0", pass:w0, details:String(w0)}); const spanOk = tasks.every(t=> { const g = taskToGrid(t); return g && g.span>=1; }); results.push({ name:"Span ≥ 1 pour toutes les tâches", pass: spanOk, details: String(spanOk)}); const noDupIso = weeks.every((w,i,a)=> i===0 || getISOWeek(w) !== getISOWeek(a[i-1])); results.push({ name:"Semaines ISO sans doublon consécutif", pass: noDupIso, details: String(noDupIso) }); const hasDangling = (()=>{ const catIds = new Set(categories.map(c=>c.id)); return tasks.some(t=> t.categoryId && !catIds.has(t.categoryId)); })(); results.push({ name:"Pas de référence de catégorie orpheline", pass: !hasDangling, details: String(!hasDangling)}); results.push({ name:"resetAll() est une fonction", pass: typeof resetAll === 'function', details: typeof resetAll }); const hexOk = categories.every(c=> /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(String(c.color || ""))); results.push({ name:"Couleurs catégories au format hex", pass: hexOk, details: String(hexOk)}); const showCountOk = tasksToShow.length <= tasks.length; results.push({ name:"Filtre ≤ total", pass: showCountOk, details: `${tasksToShow.length}/${tasks.length}`}); const taskColorsOk = tasks.every(t=> /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(String(t.color || ""))); results.push({ name:"Couleurs tâches au format hex", pass: taskColorsOk, details: String(taskColorsOk) }); const catColorMap = new Map(categories.map(c=>[c.id,c.color])); const syncOk = tasks.every(t=> !t.categoryId || t.color === catColorMap.get(t.categoryId)); results.push({ name:"Tâches sync avec couleur catégorie", pass: syncOk, details: String(syncOk) }); const colsOk = weeks.length>0 && typeof gridCols === 'string'; results.push({ name:"Grille OK", pass: colsOk, details: gridCols}); const p = parseDateRangeFromText("2025-09-06 → 2025-09-22"); const parseOk = !!p && p.startISO === "2025-09-06" && p.endISO === "2025-09-22"; results.push({ name:"Parse plage date", pass: parseOk, details: p ? `${p.startISO}→${p.endISO}` : "null"}); const notesArrOk = tasks.every(t=> Array.isArray(t.notes || [])); results.push({ name:"Notes: tableau présent", pass: notesArrOk, details: String(notesArrOk)}); return results; },[weeks.length, monthSegments, categories, tasks, tasksToShow.length, gridCols]);
+
+  return (
+    <ErrorBoundary>
+      <div className="min-h-screen w-full bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
+        <div className="mx-auto max-w-[1400px] px-4 py-4">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button onClick={()=>setPanelOpen(true)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50" aria-label="Ouvrir le planificateur"><span style={{fontSize:18}}>☰</span> Planificateur</button>
+              <button onClick={resetAll} className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-50" title="Tout effacer (tâches, catégories, cache)">Réinitialiser tout</button>
+            </div>
+            <h1 className="text-lg font-semibold tracking-tight">Planning (sept. 2025 → fév. 2026)</h1>
+          </div>
+
+          {categories.length>0 && (
+            <div className="mb-4 overflow-x-auto">
+              <div className="flex items-center gap-2 whitespace-nowrap">
+                {categories.map(c=> (
+                  <div key={c.id} className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-1 text-sm shadow-sm">
+                    <input type="checkbox" checked={c.enabled !== false} onChange={()=>toggleCategory(c.id)} className="h-4 w-4 accent-slate-900" title={c.enabled !== false ? "Masquer" : "Afficher"} />
+                    <label className="relative" title={c.color}>
+                      <input type="color" value={c.color} onChange={(e)=>updateCategoryColor(c.id, e.target.value)} className="absolute inset-0 h-3 w-3 opacity-0 cursor-pointer" />
+                      <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: c.color }} />
+                    </label>
+                    <span className="font-medium">{c.name}</span>
+                    <span className="text-xs text-slate-500">{c.color}</span>
+                    <button type="button" onClick={(e)=>{e.stopPropagation(); removeCategory(c.id);}} className="ml-1 rounded border border-red-200 bg-white px-1 text-[10px] text-red-700 hover:bg-red-50" title="Supprimer">🗑</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {panelOpen && (
+            <div className="fixed inset-0 z-40">
+              <div className="absolute inset-0 bg-black/30" onClick={()=>setPanelOpen(false)} aria-hidden="true" />
+              <aside className="absolute left-0 top-0 h-full w-[380px] max-w-[90vw] overflow-y-auto border-r border-slate-200 bg-white shadow-xl">
+                <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+                  <div className="font-medium">Planificateur</div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={resetAll} className="rounded-lg border border-red-300 bg-white px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50" title="Tout effacer">Réinitialiser</button>
+                    <button onClick={()=>setShowTests(v=>!v)} className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50" title="Afficher/masquer les tests">{showTests ? "Tests: ON" : "Tests: OFF"}</button>
+                    <button onClick={()=>setPanelOpen(false)} className="rounded-full border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 hover:bg-slate-50" aria-label="Fermer">✕</button>
+                  </div>
+                </div>
+                <div className="p-4 space-y-4">
+                  <form onSubmit={addTask} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <h2 className="mb-2 text-sm font-medium text-slate-700">Ajouter une ligne (tâche)</h2>
+                    <div className="grid grid-cols-1 gap-3">
+                      <label className="text-sm">Intitulé
+                        <input type="text" value={newTask.title} onChange={(e)=>setNewTask(s=>({...s,title:e.target.value}))} placeholder="Ex. Semaine de tournage" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+                      </label>
+                      <label className="text-sm">Plage de dates
+                        <input type="text" value={newTask.range} onChange={(e)=>{ const v=e.target.value; setNewTask(s=>{ const p=parseDateRangeFromText(v); return p ? { ...s, range:v, startISO:p.startISO, endISO:p.endISO } : { ...s, range:v }; }); }} placeholder="2025-09-06 → 2025-09-22" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="text-sm">Catégorie (couleur + nom)
+                          <select value={newTask.categoryId} onChange={(e)=>setNewTask(s=>({...s,categoryId:e.target.value}))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
+                            <option value="">— Aucune —</option>
+                            {categories.map(c=> (<option key={c.id} value={c.id}>{c.name}</option>))}
+                          </select>
+                        </label>
+                        <label className="text-sm">Couleur (si pas de catégorie)
+                          <input type="color" value={newTask.color} onChange={(e)=>setNewTask(s=>({...s,color:e.target.value}))} className="mt-1 h-10 w-full cursor-pointer rounded-lg border border-slate-300" title="Choisir une couleur" />
+                        </label>
+                      </div>
+                      <label className="text-sm">Dénomination (si nouvelle couleur)
+                        <input type="text" value={newTask.newCategoryName} onChange={(e)=>setNewTask(s=>({...s,newCategoryName:e.target.value}))} placeholder="Ex. Montage" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+                      </label>
+                      <button type="submit" className="mt-1 inline-flex items-center justify-center rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">Ajouter la ligne</button>
+                    </div>
+                  </form>
+                  {showTests && (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <h2 className="mb-2 text-sm font-medium text-slate-700">Tests</h2>
+                      <ul className="space-y-1 text-sm">
+                        {testResults.map((t,i)=>(
+                          <li key={i} className="flex items-center gap-3">
+                            <span className={(t.pass?"bg-green-100 text-green-700":"bg-red-100 text-red-700")+" inline-flex h-5 min-w-[20px] items-center justify-center rounded px-1 text-xs font-semibold"}>{t.pass?"OK":"KO"}</span>
+                            <span>{t.name}</span>
+                            <span className="ml-auto text-xs text-slate-500">{t.details}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </aside>
+            </div>
+          )}
+
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm h-[82vh] max-h-[82vh] flex flex-col min-h-0">
+            <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90">
+              <div style={{ display:'grid', gridTemplateColumns:`repeat(${/* weeks.length */ 0}, 44px)` }}></div>
+            </div>
+            {/* L’entête réelle est rendue par le composant ci-dessous */}
+            <div className="min-h-0 flex-1 overflow-auto">
+              {/* Les lignes de tâches sont rendues dynamiquement */}
+            </div>
+          </div>
+        </div>
+      </div>
+    </ErrorBoundary>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<PlannerApp />);
+/* ==== Fin du code React ==== */
+    </script>
+  </body>
+</html>
