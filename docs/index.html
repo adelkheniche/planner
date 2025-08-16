@@ -17,18 +17,22 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Supabase JS v2 (UMD) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <!-- Votre app React, transpillée par Babel dans le navigateur -->
     <script type="text/babel" data-presets="env,react">
 /* ==== Début du code React (adapté pour exécution sans import) ==== */
 const { useEffect, useMemo, useState } = React;
 
-// ------- (Optionnel) Persistance côté serveur -------
-// Laissez à null pour GitHub Pages (localStorage uniquement).
-// Si vous déployez une micro-API (ex: https://api.votredomaine.com/state),
-// mettez l'URL ci-dessous et assurez le CORS côté API.
-const API_URL = null; // ex: 'https://api.votredomaine.com/state'
+// ---- Supabase config (remplacé par vos infos) ----
+const SUPABASE_URL = "https://kadoikpkjmkchabvnuqs.supabase.co"; // Project Settings → API
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZG9pa3Bram1rY2hhYnZudXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMzEwNDIsImV4cCI6MjA3MDkwNzA0Mn0.q28StZ8nsrbck2Xx6xBCfpgdfLotxne3cyWc6-o_FZM"; // public anon
+const DOC_SLUG = "main"; // ou un slug aléatoire long (recommandé)
 
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ---- Paramètres généraux ----
 const WEEK_STARTS_ON = 1;
 const MS_DAY = 24 * 60 * 60 * 1000;
 function startOfWeek(d, weekStartsOn = WEEK_STARTS_ON) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); const day = x.getDay(); const diff = (day - weekStartsOn + 7) % 7; x.setDate(x.getDate() - diff); x.setHours(0,0,0,0); return x; }
@@ -41,7 +45,7 @@ const fmtDM = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" 
 function getISOWeek(date) { const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())); const dayNum = d.getUTCDay() || 7; d.setUTCDate(d.getUTCDate() + 4 - dayNum); const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1)); return Math.ceil(((d - yearStart) / MS_DAY + 1) / 7); }
 
 const TIMELINE_START = startOfWeek(new Date(2025, 8, 1));
-const TIMELINE_END = endOfWeek(new Date(2026, 1, 28));
+one: const TIMELINE_END = endOfWeek(new Date(2026, 1, 28));
 
 function eachWeekOfInterval(start, end) {
   const weeks = [];
@@ -57,18 +61,14 @@ function eachWeekOfInterval(start, end) {
   return weeks;
 }
 
+// ---- Cache local (facultatif) ----
 const LS_KEY = "gantt-sept2025-fev2026";
 function loadState() { try { if (typeof window === "undefined" || !("localStorage" in window)) return null; const raw = window.localStorage.getItem(LS_KEY); if (!raw) return null; return JSON.parse(raw); } catch (_) { return null; } }
 function saveState(state) { try { if (typeof window === "undefined" || !("localStorage" in window)) return; window.localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) {} }
 
-// ===== Transfert simple vers un nouvel onglet / autre navigateur =====
-// 1) Bouton "Exporter" copie le JSON (ou télécharge un .json si clipboard refusé)
-// 2) Bouton "Importer" colle un JSON
-// 3) Bouton "Nouveau (transférer)" ouvre un nouvel onglet avec le state
-//    encodé dans l'URL (#s=base64). L'onglet receveur importe puis nettoie l'URL.
+// ===== Transfert rapide entre onglets/navigateurs =====
 function b64Encode(str){ try{ return btoa(unescape(encodeURIComponent(str))); }catch(_){ return btoa(str); } }
 function b64Decode(str){ try{ return decodeURIComponent(escape(atob(str))); }catch(_){ return atob(str); } }
-
 (function importFromHash(){
   try {
     const h = location.hash;
@@ -91,36 +91,63 @@ function PlannerApp(){
   const weeks = useMemo(() => eachWeekOfInterval(TIMELINE_START, TIMELINE_END), []);
   const monthSegments = useMemo(() => { if (weeks.length === 0) return []; const segs = []; let currentLabel = fmtMonthYear.format(new Date(weeks[0].getTime() + MS_DAY * 3)); let span = 0; for (let i=0;i<weeks.length;i++){ const label = fmtMonthYear.format(new Date(weeks[i].getTime() + MS_DAY * 3)); if (label === currentLabel) span++; else { segs.push({label: currentLabel, span}); currentLabel = label; span = 1; } } segs.push({label: currentLabel, span}); return segs; }, [weeks]);
 
+  // État principal
   const initial = loadState();
-  const [categories, setCategories] = useState(initial && initial.categories ? initial.categories : []);
-  const [tasks, setTasks] = useState((initial && initial.tasks ? initial.tasks : []).map((t,i)=>({...t, row: typeof t.row === 'number' ? t.row : i })));
+  const [categories, setCategories] = useState(initial?.categories || []);
+  const [tasks, setTasks] = useState((initial?.tasks || []).map((t,i)=>({...t, row: typeof t.row === 'number' ? t.row : i })));
+
+  // État synchro Supabase: idle | loading | saving | ok | error
+  const [sync, setSync] = useState({ status: 'idle', ts: null, error: null });
+
   const [showTests, setShowTests] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
 
-  // Charger l'état depuis l'API (si activée)
+  // Charger depuis Supabase au démarrage (ou créer la ligne si absente)
   useEffect(()=>{
-    if(!API_URL) return;
-    fetch(API_URL).then(r=>r.json()).then(s=>{
-      if(s && typeof s === 'object'){
+    (async ()=>{
+      setSync({ status: 'loading', ts: null, error: null });
+      const { data, error } = await supabase
+        .from('planner_state')
+        .select('data')
+        .eq('slug', DOC_SLUG)
+        .limit(1)
+        .maybeSingle();
+
+      if (!error && data?.data) {
+        const s = data.data;
         setCategories(Array.isArray(s.categories)? s.categories : []);
         setTasks(Array.isArray(s.tasks)? s.tasks.map((t,i)=>({...t, row: typeof t.row==='number'? t.row : i })) : []);
+        setSync({ status: 'ok', ts: new Date().toISOString(), error: null });
+      } else if (!error && !data) {
+        // pas de ligne: créer avec l'état local (ou vide)
+        const payload = { categories, tasks };
+        await supabase.from('planner_state').insert({ slug: DOC_SLUG, data: payload, updated_at: new Date().toISOString() });
+        setSync({ status: 'ok', ts: new Date().toISOString(), error: null });
+      } else {
+        setSync({ status: 'error', ts: null, error: error?.message || 'Lecture Supabase impossible' });
       }
-    }).catch(()=>{});
-  },[]);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Sauvegarde locale (cache navigateur)
+  // Cache local (toujours actif)
   useEffect(()=>{ saveState({ categories, tasks }); },[categories,tasks]);
 
-  // Sauvegarde serveur (si API activée) avec petit debounce
+  // Sauvegarde Supabase (debounce)
   useEffect(()=>{
-    if(!API_URL) return;
     const payload = { categories, tasks };
-    const t = setTimeout(()=>{
-      fetch(API_URL, { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) }).catch(()=>{});
-    }, 500);
+    const t = setTimeout(async ()=>{
+      setSync(s=>({ ...s, status: 'saving' }));
+      const { error } = await supabase
+        .from('planner_state')
+        .upsert({ slug: DOC_SLUG, data: payload, updated_at: new Date().toISOString() });
+      if (error) setSync({ status: 'error', ts: null, error: error.message });
+      else setSync({ status: 'ok', ts: new Date().toISOString(), error: null });
+    }, 600);
     return ()=> clearTimeout(t);
   }, [categories, tasks]);
 
+  // UX
   useEffect(()=>{ function onKey(e){ if(e.key==='Escape') setPanelOpen(false);} if(panelOpen) window.addEventListener('keydown', onKey); return ()=> window.removeEventListener('keydown', onKey); },[panelOpen]);
 
   const [newTask, setNewTask] = useState({ title: "", startISO: toISODate(TIMELINE_START), endISO: toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7)), range: `${toISODate(TIMELINE_START)} → ${toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7))}`, color: "#2563eb", categoryId: "", newCategoryName: "" });
@@ -132,9 +159,9 @@ function PlannerApp(){
 
   function getOrCreateCategoryByName(name, colorOverride){ let c = categories.find(x=>x.name===name); if(c) return c; const color = colorOverride || PALETTE[categories.length % PALETTE.length]; c = { id: `c-${Date.now()}-${Math.random().toString(36).slice(2,6)}`, name, color, enabled: true }; setCategories(prev=>[...prev,c]); return c; }
 
-  function addTask(e){ e.preventDefault(); const s = new Date(newTask.startISO); const eDate = new Date(newTask.endISO); if(s>eDate){ alert("La date de début doit précéder la date de fin."); return; } let chosenCat = categories.find(c=>c.id===newTask.categoryId); if(!chosenCat && newTask.newCategoryName.trim()){ const existingByName = categories.find(c=>c.name.toLowerCase()===newTask.newCategoryName.trim().toLowerCase()); if(existingByName) chosenCat = existingByName; else chosenCat = getOrCreateCategoryByName(newTask.newCategoryName.trim(), newTask.color); } const color = chosenCat ? chosenCat.color : newTask.color; const t = { id:`t-${Date.now()}`, title: newTask.title || (chosenCat ? chosenCat.name : "Sans titre"), startISO: toISODate(clampDate(s, TIMELINE_START, TIMELINE_END)), endISO: toISODate(clampDate(eDate, TIMELINE_START, TIMELINE_END)), color, categoryId: chosenCat ? chosenCat.id : undefined, actions: [], sourceLabel: null, row: tasks.length, notes: [] }; setTasks(prev=>[...prev,t]); }
+  function addTask(e){ e.preventDefault(); const s = new Date(newTask.startISO); const eDate = new Date(newTask.endISO); if(s>eDate){ alert("La date de début doit précéder la date de fin."); return; } let chosenCat = categories.find(c=>c.id===newTask.categoryId); if(!chosenCat && newTask.newCategoryName.trim()){ const existingByName = categories.find(c=>c.name.toLowerCase()===newTask.newCategoryName.trim().toLowerCase()); if(existingByName) chosenCat = existingByName; else chosenCat = getOrCreateCategoryByName(newTask.newCategoryName.trim(), newTask.color); } const color = chosenCat ? chosenCat.color : newTask.color; const t = { id:`t-${Date.now()}`, title: newTask.title || (chosenCat ? chosenCat.name : "Sans titre"), startISO: toISODate(clampDate(s, TIMELINE_START, TIMELINE_END)), endISO: toISODate(clampDate(eDate, TIMELINE_START, TIMELINE_END)), color, categoryId: chosenCat?.id, actions: [], sourceLabel: null, row: tasks.length, notes: [] }; setTasks(prev=>[...prev,t]); }
 
-  function removeTask(id){ setTasks(prev=>{ const removed = prev.find(t=>t.id===id); const next = prev.filter(t=>t.id!==id); if(removed && removed.categoryId){ const stillUsed = next.some(t=>t.categoryId===removed.categoryId); if(!stillUsed) setCategories(cprev=>cprev.filter(c=>c.id!==removed.categoryId)); } return next; }); }
+  function removeTask(id){ setTasks(prev=>{ const removed = prev.find(t=>t.id===id); const next = prev.filter(t=>t.id!==id); if(removed?.categoryId){ const stillUsed = next.some(t=>t.categoryId===removed.categoryId); if(!stillUsed) setCategories(cprev=>cprev.filter(c=>c.id!==removed.categoryId)); } return next; }); }
   function removeCategory(id){ const cat = categories.find(c=>c.id===id); if(!cat) return; setTasks(prev=>prev.filter(t=>t.categoryId!==id)); setCategories(prev=>prev.filter(c=>c.id!==id)); }
   function toggleCategory(id){ setCategories(prev=>prev.map(c=> (c.id===id ? { ...c, enabled: !(c.enabled !== false)} : c))); }
   function updateCategoryColor(id, newColor){ setCategories(prev=> prev.map(c=> (c.id===id ? { ...c, color:newColor } : c))); setTasks(prev=> prev.map(t=> (t.categoryId===id ? { ...t, color:newColor } : t))); }
@@ -179,6 +206,7 @@ function PlannerApp(){
 
   const testResults = useMemo(()=>{ const results = []; const t1 = TIMELINE_START.getDay()===1 && TIMELINE_START.getDate()===1 && TIMELINE_START.getMonth()===8; results.push({ name:"TIMELINE_START est lun 1 sept. 2025", pass:t1, details: toISODate(TIMELINE_START)}); const weeksCountOk = weeks.length>0 && weeks.length<60; results.push({ name:"Nombre de semaines plausible", pass:weeksCountOk, details:String(weeks.length)}); const sumSpan = monthSegments.reduce((a,b)=>a+b.span,0); results.push({ name:"Somme spans == nb semaines", pass: sumSpan===weeks.length, details: `${sumSpan} vs ${weeks.length}`}); const allEnabledByDefault = categories.every(c=> c.enabled !== false); results.push({ name:"Catégories actives par défaut", pass: allEnabledByDefault, details: String(allEnabledByDefault)}); const w0 = weekIndexOf(TIMELINE_START)===0; results.push({ name:"weekIndexOf(TIMELINE_START) == 0", pass:w0, details:String(w0)}); const spanOk = tasks.every(t=> { const g = taskToGrid(t); return g && g.span>=1; }); results.push({ name:"Span ≥ 1 pour toutes les tâches", pass: spanOk, details: String(spanOk)}); const noDupIso = weeks.every((w,i,a)=> i===0 || getISOWeek(w) !== getISOWeek(a[i-1])); results.push({ name:"Semaines ISO sans doublon consécutif", pass: noDupIso, details: String(noDupIso) }); const hasDangling = (function(){ const catIds = new Set(categories.map(c=>c.id)); return tasks.some(t=> t.categoryId && !catIds.has(t.categoryId)); })(); results.push({ name:"Pas de référence de catégorie orpheline", pass: !hasDangling, details: String(!hasDangling)}); results.push({ name:"resetAll() est une fonction", pass: typeof resetAll === 'function', details: typeof resetAll }); const hexOk = categories.every(c=> /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(String(c.color || ""))); results.push({ name:"Couleurs catégories au format hex", pass: hexOk, details: String(hexOk)}); const showCountOk = tasksToShow.length <= tasks.length; results.push({ name:"Filtre ≤ total", pass: showCountOk, details: `${tasksToShow.length}/${tasks.length}`}); const taskColorsOk = tasks.every(t=> /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(String(t.color || ""))); results.push({ name:"Couleurs tâches au format hex", pass: taskColorsOk, details: String(taskColorsOk) }); const catColorMap = new Map(categories.map(c=>[c.id,c.color])); const syncOk = tasks.every(t=> !t.categoryId || t.color === catColorMap.get(t.categoryId)); results.push({ name:"Tâches sync avec couleur catégorie", pass: syncOk, details: String(syncOk) }); const colsOk = weeks.length>0 && typeof gridCols === 'string'; results.push({ name:"Grille OK", pass: colsOk, details: gridCols}); const p = parseDateRangeFromText("2025-09-06 → 2025-09-22"); const parseOk = !!p && p.startISO === "2025-09-06" && p.endISO === "2025-09-22"; results.push({ name:"Parse plage date", pass: parseOk, details: p ? `${p.startISO}→${p.endISO}` : "null"}); const notesArrOk = tasks.every(t=> Array.isArray(t.notes || [])); results.push({ name:"Notes: tableau présent", pass: notesArrOk, details: String(notesArrOk)}); return results; },[weeks.length, monthSegments, categories, tasks, tasksToShow.length, gridCols]);
 
+  // Affichage
   return (
     <ErrorBoundary>
       <div className="min-h-screen w-full bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
@@ -187,6 +215,12 @@ function PlannerApp(){
             <div className="flex items-center gap-2">
               <button onClick={()=>setPanelOpen(true)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50" aria-label="Ouvrir le planificateur"><span style={{fontSize:18}}>☰</span> Planificateur</button>
               <button onClick={resetAll} className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-50" title="Tout effacer (tâches, catégories, cache)">Réinitialiser tout</button>
+              <span className="ml-2 text-xs rounded-full border px-2 py-1" style={{borderColor:'#cbd5e1', color: sync.status==='error'? '#b91c1c' : '#334155', backgroundColor: sync.status==='saving'? '#f1f5f9' : '#fff' }}>
+                {sync.status==='loading' && 'Synchro…'}
+                {sync.status==='saving' && 'Enregistrement…'}
+                {sync.status==='ok' && (sync.ts ? `Synchro OK · ${new Date(sync.ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}` : 'Synchro OK')}
+                {sync.status==='error' && 'Erreur de synchro'}
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <button onClick={exportClipboard} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50" title="Copier l'état (ou télécharger)">Exporter</button>
