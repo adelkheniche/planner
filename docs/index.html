@@ -591,10 +591,24 @@ function PlannerApp(){
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
-      <div className="mx-auto max-w-[1400px] px-4 py-4" style={{display:'grid',gridTemplateColumns:'1fr 360px',gap:'24px'}}>
+      <div
+        className="mx-auto max-w-[1400px] px-4 py-4 h-[82vh]"
+        style={{ display:'grid', gridTemplateColumns:'1fr 360px', gridTemplateRows:'auto 1fr', gap:'24px' }}
+      >
+        {/* Top bar - span 2 colonnes */}
+        <div className="flex items-center justify-between" style={{ gridColumn:'1 / -1', gridRow:1 }}>
+          <button
+            onClick={()=>setPanelOpen(v=>!v)}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+          >
+            <span style={{fontSize:18}}>☰</span> Planificateur
+          </button>
+          <h1 className="text-lg font-semibold tracking-tight">Planning (sept. 2025 → fév. 2026)</h1>
+        </div>
+
         <aside
-          className="h-[82vh] overflow-y-auto border-l border-slate-200 bg-white rounded-2xl shadow-sm flex flex-col"
-          style={{ gridColumn:'2' }}
+          className="h-full overflow-y-auto border-l border-slate-200 bg-white rounded-2xl shadow-sm flex flex-col"
+          style={{ gridColumn:'2', gridRow:2 }}
           aria-labelledby="notes-title"
         >
           <div id="notes-title" className="border-b border-slate-200 px-4 py-3 font-medium text-slate-700">{selectedTask ? selectedTask.title : 'Notes'}</div>
@@ -623,20 +637,8 @@ function PlannerApp(){
             )}
           </div>
         </aside>
-        <div className="flex flex-col" style={{gridColumn:'1'}}>
-        {/* Top bar */}
-        <div className="mb-4 flex items-center justify-between">
-          <button
-            onClick={()=>setPanelOpen(v=>!v)}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
-          >
-            <span style={{fontSize:18}}>☰</span> Planificateur
-          </button>
-          <h1 className="text-lg font-semibold tracking-tight">Planning (sept. 2025 → fév. 2026)</h1>
-        </div>
-
-        {/* Gantt */}
-        <div className="relative">
+        {/* Gantt - colonne gauche, ligne 2 */}
+        <div className="relative" style={{ gridColumn:'1', gridRow:2 }}>
           {selectedTask && (
             <div className="absolute top-0 right-0 translate-x-full flex flex-col gap-1 p-1">
               {selectedTask.parentId && (
@@ -653,7 +655,11 @@ function PlannerApp(){
               >🗑</button>
             </div>
           )}
-          <div ref={containerRef} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm h-[82vh] max-h-[82vh] flex flex-col min-h-0">
+
+          <div
+            ref={containerRef}
+            className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm h-full max-h-full flex flex-col min-h-0"
+          >
             {header}
 
             <div className="min-h-0 flex-1 overflow-auto" ref={scrollRef}>
@@ -712,11 +718,11 @@ function PlannerApp(){
             })}
           </div>
         </div>
-        </div>
-        </div>
-        </div>
+      </div>
+      </div>
+    </div>
 
-      {categories.length>0 && (
+        {categories.length>0 && (
         <footer className="w-full max-w-[1400px] mx-auto px-4 pb-4">
           <div className="flex flex-wrap items-center gap-2">
             {categories.map(c=>(
