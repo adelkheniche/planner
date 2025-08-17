@@ -130,7 +130,12 @@ function PlannerApp(){
   // Liste des catégories affichées
   const [categories,setCategories] = useState(initial?.categories || []);
   // Liste des tâches planifiées
-  const [tasks,setTasks] = useState((initial?.tasks || []).map((t,i)=>({...t,row:typeof t.row==='number'?t.row:i})));
+  const [tasks,setTasks] = useState((initial?.tasks || []).map((t,i)=>({
+    ...t,
+    row: typeof t.row === 'number' ? t.row : i,
+    subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
+    expanded: !!t.expanded
+  })));
   // Informations de synchronisation avec Supabase
   const [sync,setSync] = useState({status:'idle',ts:null,error:null});
   // Affichage des outils de test
@@ -158,7 +163,12 @@ function PlannerApp(){
         console.log("[Supabase] state loaded.");
         const s=data.data;
         setCategories(Array.isArray(s.categories)? s.categories:[]);
-        setTasks(Array.isArray(s.tasks)? s.tasks.map((t,i)=>({...t,row:typeof t.row==='number'?t.row:i})):[]);
+        setTasks(Array.isArray(s.tasks)? s.tasks.map((t,i)=>({
+          ...t,
+          row: typeof t.row === 'number' ? t.row : i,
+          subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
+          expanded: !!t.expanded
+        })) : []);
         setSync({status:'ok',ts:new Date().toISOString(),error:null});
       }else{
         console.log("[Supabase] no row yet; inserting current local state.");
@@ -220,7 +230,7 @@ function PlannerApp(){
       if(existingByName) chosenCat=existingByName; else chosenCat=getOrCreateCategoryByName(newTask.newCategoryName.trim(),newTask.color);
     }
     const color=chosenCat?chosenCat.color:newTask.color;
-    const t={ id:`t-${Date.now()}`, title:newTask.title || (chosenCat?chosenCat.name:"Sans titre"), startISO:toISODate(clampDate(s,TIMELINE_START,TIMELINE_END)), endISO:toISODate(clampDate(eDate,TIMELINE_START,TIMELINE_END)), color, categoryId:chosenCat?.id, actions:[], sourceLabel:null, row:tasks.length, notes:[] };
+    const t={ id:`t-${Date.now()}`, title:newTask.title || (chosenCat?chosenCat.name:"Sans titre"), startISO:toISODate(clampDate(s,TIMELINE_START,TIMELINE_END)), endISO:toISODate(clampDate(eDate,TIMELINE_START,TIMELINE_END)), color, categoryId:chosenCat?.id, actions:[], sourceLabel:null, row:tasks.length, notes:[], subtasks:[], expanded:false };
     setTasks(prev=>[...prev,t]);
   }
   function removeTask(id){ setTasks(prev=>{ const removed=prev.find(t=>t.id===id); const next=prev.filter(t=>t.id!==id); if(removed?.categoryId){ const stillUsed=next.some(t=>t.categoryId===removed.categoryId); if(!stillUsed) setCategories(cprev=>cprev.filter(c=>c.id!==removed.categoryId)); } return next; }); }
@@ -230,7 +240,23 @@ function PlannerApp(){
   function resetAll(){ try{ localStorage.removeItem(LS_KEY);}catch{} setPanelOpen(false); setCategories([]); setTasks([]); setNewTask({ title:"", startISO:toISODate(TIMELINE_START), endISO:toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7)), range:`${toISODate(TIMELINE_START)} → ${toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7))}`, color:"#2563eb", categoryId:"", newCategoryName:""}); }
 
   const enabledCategoryIds = useMemo(()=> new Set(categories.filter(c=>c.enabled!==false).map(c=>c.id)),[categories]);
-  const tasksToShow = useMemo(()=> !categories.length ? tasks : tasks.filter(t=>!t.categoryId || enabledCategoryIds.has(t.categoryId)), [tasks,categories,enabledCategoryIds]);
+  const tasksToShow = useMemo(()=>{
+    const filtered = !categories.length ? tasks : tasks.filter(t=>!t.categoryId || enabledCategoryIds.has(t.categoryId));
+    const sorted = filtered.slice().sort((a,b)=> (a.row??0) - (b.row??0));
+    const result=[];
+    let offset=0;
+    for(const t of sorted){
+      const baseRow=(t.row??0)+offset;
+      result.push({...t,row:baseRow});
+      if(t.expanded && Array.isArray(t.subtasks)){
+        t.subtasks.forEach((st,idx)=>{
+          result.push({...st,row:baseRow+idx+1,parentId:t.id});
+        });
+        offset += t.subtasks.length;
+      }
+    }
+    return result;
+  },[tasks,categories,enabledCategoryIds]);
 
   const colWidthPx = 44;
   const gridCols = `repeat(${weeks.length}, ${colWidthPx}px)`;
@@ -260,6 +286,8 @@ function PlannerApp(){
 
   function changeRow(id,delta){ setTasks(prev=> prev.map(t=> t.id===id ? {...t, row:Math.max(0,(t.row??0)+delta)} : t)); }
 
+  function toggleExpanded(id){ setTasks(prev=> prev.map(t=> t.id===id ? {...t, expanded: !t.expanded} : t)); }
+
   const [noteEditor,setNoteEditor]=useState({taskId:null,draft:""});
   function openNotes(taskId){ setNoteEditor({taskId,draft:""}); }
   function addNoteToTask(taskId,text){ const v=(text||"").trim(); if(!v) return; setTasks(prev=> prev.map(t=> t.id===taskId ? {...t, notes:[...(t.notes||[]), v]} : t)); setNoteEditor({taskId, draft:""}); }
@@ -286,8 +314,8 @@ function PlannerApp(){
     results.push({ name:"resetAll() est une fonction", pass: typeof resetAll === 'function', details: typeof resetAll });
     const hexOk = categories.every(c=> /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(String(c.color || "")));
     results.push({ name:"Couleurs catégories au format hex", pass: hexOk, details: String(hexOk)});
-    const showCountOk = tasksToShow.length <= tasks.length;
-    results.push({ name:"Filtre ≤ total", pass: showCountOk, details: `${tasksToShow.length}/${tasks.length}`});
+    const showCountOk = tasksToShow.filter(t=>!t.parentId).length <= tasks.length;
+    results.push({ name:"Filtre ≤ total", pass: showCountOk, details: `${tasksToShow.filter(t=>!t.parentId).length}/${tasks.length}`});
     const taskColorsOk = tasks.every(t=> /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(String(t.color || "")));
     results.push({ name:"Couleurs tâches au format hex", pass: taskColorsOk, details: String(taskColorsOk) });
     const catColorMap = new Map(categories.map(c=>[c.id,c.color]));
@@ -300,6 +328,10 @@ function PlannerApp(){
     results.push({ name:"Parse plage date", pass: parseOk, details: p ? `${p.startISO}→${p.endISO}` : "null"});
     const notesArrOk = tasks.every(t=> Array.isArray(t.notes || []));
     results.push({ name:"Notes: tableau présent", pass: notesArrOk, details: String(notesArrOk)});
+    const subtasksArrOk = tasks.every(t=> Array.isArray(t.subtasks || []));
+    results.push({ name:"Sous-tâches: tableau présent", pass: subtasksArrOk, details: String(subtasksArrOk)});
+    const expandedBoolOk = tasks.every(t=> typeof t.expanded === 'boolean');
+    results.push({ name:"expanded est booléen", pass: expandedBoolOk, details: String(expandedBoolOk)});
     return results;
   },[weeks.length, monthSegments, categories, tasks, tasksToShow.length, gridCols]);
 
@@ -327,7 +359,12 @@ function PlannerApp(){
                   {sync.status==='error'   && 'Erreur de synchro'}
                 </span>
                 <button onClick={()=>{ const data=JSON.stringify({categories,tasks}); navigator.clipboard.writeText(data).then(()=>alert('État copié.')).catch(()=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([data],{type:'application/json'})); a.download='planner-state.json'; a.click(); }); setPanelOpen(false); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">Exporter</button>
-                <button onClick={()=>{ const t=prompt('Collez le JSON :'); if(!t) return; try{ const s=JSON.parse(t); setCategories(Array.isArray(s.categories)?s.categories:[]); setTasks(Array.isArray(s.tasks)? s.tasks.map((t,i)=>({...t,row:typeof t.row==='number'?t.row:i})) : []);}catch{ alert('JSON invalide'); } setPanelOpen(false); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">Importer</button>
+                <button onClick={()=>{ const t=prompt('Collez le JSON :'); if(!t) return; try{ const s=JSON.parse(t); setCategories(Array.isArray(s.categories)?s.categories:[]); setTasks(Array.isArray(s.tasks)? s.tasks.map((t,i)=>({
+                  ...t,
+                  row: typeof t.row === 'number' ? t.row : i,
+                  subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
+                  expanded: !!t.expanded
+                })) : []);}catch{ alert('JSON invalide'); } setPanelOpen(false); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">Importer</button>
                 <button onClick={()=>{ const url=location.origin+location.pathname+location.search+'#s='+b64Encode(JSON.stringify({categories,tasks})); window.open(url,'_blank'); setPanelOpen(false); }} className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">Nouveau (→ transfère)</button>
               </div>
               <form onSubmit={addTask} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -436,6 +473,7 @@ function PlannerApp(){
                     const isDragging=drag && drag.taskId===t.id;
                     let leftAdj=leftPx, widthAdj=widthPx, topAdj=ROW_GAP/2;
                     if(isDragging){ if(drag.type==='move'){ leftAdj=leftPx+(drag.dx||0); topAdj=ROW_GAP/2+(drag.dy||0); } if(drag.type==='right') widthAdj=Math.max(colWidthPx,widthPx+(drag.dx||0)); if(drag.type==='left'){ const w=Math.max(colWidthPx,widthPx-(drag.dx||0)); leftAdj=leftPx+(drag.dx||0); widthAdj=w; } }
+                    const isSub = !!t.parentId;
                     const isNarrow=widthAdj<64; const noteCount=Array.isArray(t.notes)?t.notes.length:0;
                     const charWidth=0.6;
                     const fontPx=Math.min(11, Math.max(8, Math.floor(widthAdj/(charWidth*Math.max(1, t.title.length)))));
@@ -443,6 +481,7 @@ function PlannerApp(){
                       <div key={t.id} className="pointer-events-none absolute left-0 top-0 w-full" style={{ height: ROW_H }}>
                         <div
                           className="pointer-events-auto absolute select-none rounded-lg shadow-sm group"
+                          onDoubleClick={()=>toggleExpanded(t.parentId || t.id)}
                           style={{
                             left: leftAdj,
                             width: widthAdj,
@@ -451,19 +490,19 @@ function PlannerApp(){
                             backgroundColor: t.color
                           }}
                         >
-                          {noteCount>0 && <span className="absolute -top-1 -left-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border border-white bg-slate-900 px-1 text-[10px] font-semibold text-white">{noteCount}</span>}
-                          <div className="flex h-full items-center gap-1 pl-1 pr-2 text-slate-700" style={{fontSize:fontPx}}>
+                          {noteCount>0 && !isSub && <span className="absolute -top-1 -left-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border border-white bg-slate-900 px-1 text-[10px] font-semibold text-white">{noteCount}</span>}
+                          <div className={`flex h-full items-center gap-1 ${isSub? 'pl-4':'pl-1'} pr-2 text-slate-700`} style={{fontSize:fontPx}}>
                             {!isNarrow && <span className="inline-block h-2 w-2 rounded" style={{backgroundColor:t.color}}/>}
                             <span className="min-w-0 font-medium whitespace-nowrap" title={`${t.title} — ${t.startISO} → ${t.endISO}`}>{t.title}</span>
-                            <div className="ml-auto hidden items-center gap-1 group-hover:flex">
+                            {!isSub && <div className="ml-auto hidden items-center gap-1 group-hover:flex">
                               <button onClick={()=>openNotes(t.id)} className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" title="Notes">💬</button>
                               <button onClick={()=>removeTask(t.id)} className="rounded border border-red-200 bg-white px-1 text-[10px] text-red-700 hover:bg-red-50" title="Supprimer">🗑</button>
-                            </div>
+                            </div>}
                           </div>
-                          <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'move',startX:e.clientX,startY:e.clientY,dx:0,dy:0})} className="absolute inset-y-0 left-2 w-8 cursor-grab" title="Déplacer" />
-                          <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'left',startX:e.clientX,startY:e.clientY,dx:0,dy:0})}  className="absolute inset-y-0 left-0 w-2 cursor-w-resize" title="Ajuster début" />
-                          <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'right',startX:e.clientX,startY:e.clientY,dx:0,dy:0})} className="absolute inset-y-0 right-0 w-2 cursor-e-resize" title="Ajuster fin" />
-                          {noteEditor.taskId===t.id && (
+                          {!isSub && <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'move',startX:e.clientX,startY:e.clientY,dx:0,dy:0})} className="absolute inset-y-0 left-2 w-8 cursor-grab" title="Déplacer" />}
+                          {!isSub && <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'left',startX:e.clientX,startY:e.clientY,dx:0,dy:0})}  className="absolute inset-y-0 left-0 w-2 cursor-w-resize" title="Ajuster début" />}
+                          {!isSub && <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'right',startX:e.clientX,startY:e.clientY,dx:0,dy:0})} className="absolute inset-y-0 right-0 w-2 cursor-e-resize" title="Ajuster fin" />}
+                          {noteEditor.taskId===t.id && !isSub && (
                             <div className="absolute right-0 top-[110%] z-20 w-[280px] rounded-xl border border-slate-200 bg-white p-3 text-[12px] shadow-lg">
                               <div className="mb-2 flex items-center justify-between"><div className="font-medium">Notes</div><button className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" onClick={()=>setNoteEditor({taskId:null,draft:""})}>✕</button></div>
                               <div className="max-h-40 space-y-2 overflow-y-auto">
