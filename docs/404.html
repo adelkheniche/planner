@@ -438,6 +438,10 @@ function PlannerApp(){
     setCategories(prev => prev.map(c => c.id===id ? {...c, color} : c));
     setTasks(prev => prev.map(t => t.categoryId===id ? { ...t, color } : t));
   }
+  function removeCategory(id){
+    setCategories(prev => prev.filter(c => c.id !== id));
+    setTasks(prev => prev.map(t => t.categoryId===id ? { ...t, categoryId:null } : t));
+  }
 
   function addNote(e){
     e.preventDefault();
@@ -736,6 +740,7 @@ function PlannerApp(){
                 </label>
                 <span className="font-medium">{c.name}</span>
                 <span className="text-xs text-slate-500">{c.color}</span>
+                <button onClick={()=>removeCategory(c.id)} className="ml-1 text-xs text-slate-400 hover:text-red-600" title="Supprimer">✕</button>
               </div>
             ))}
           </div>
