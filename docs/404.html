@@ -58,6 +58,8 @@ const ROW_H = 26;                     // hauteur d’une ligne (px)
 const ROW_GAP = 2;                    // petit padding vertical dans une ligne
 const SUB_ROW_H = 22;                 // hauteur d'une voie dans la sous-frise
 const SUB_ROW_GAP = 2;                // marge interne des sous-barres
+const DRAG_THRESHOLD_PX = 6;
+const DRAG_THRESHOLD_MS = 120;
 const BULLET_HIDE_W = 48;
 const fmtMonthYear = new Intl.DateTimeFormat("fr-FR",{ month:"long", year:"numeric" });
 const fmtDM = new Intl.DateTimeFormat("fr-FR",{ day:"numeric", month:"short" });
@@ -244,6 +246,7 @@ function PlannerApp(){
   const subZonesRef = useRef({});        // parentId -> DOMRect
   const containerRef = useRef(null);
   const scrollRef = useRef(null);
+  const lastWasDblClickRef = useRef(false);
 
   // recalcul des bounding boxes des sous-frises après rendu
   useEffect(()=>{
@@ -287,23 +290,26 @@ function PlannerApp(){
   function animate(){
     const d = dragRef.current;
     if(!d) return;
-    let tx = d.dx;
-    let ty = 0;
-    let width = d.startWidth;
     if(d.type === 'move'){
-      ty = Math.round(d.dy / d.rowHeight) * d.rowHeight;
+      if(d.active){
+        const tx = d.dx;
+        const ty = Math.round(d.dy / d.rowHeight) * d.rowHeight;
+        d.node.style.transform = `translate3d(${tx}px,${ty}px,0)`;
+      }
     }else if(d.type === 'left'){
-      width = Math.max(COL_W, d.startWidth - d.dx);
-      tx = d.dx;
+      const width = Math.max(COL_W, d.startWidth - d.dx);
+      d.node.style.transform = `translate3d(${d.dx}px,0,0)`;
       d.node.style.width = width + 'px';
+      const font = fontPxFor(width, d.title);
+      d.node.style.setProperty('--task-font', font + 'px');
+      if(width < BULLET_HIDE_W) d.node.classList.add('hide-bullet'); else d.node.classList.remove('hide-bullet');
     }else if(d.type === 'right'){
-      width = Math.max(COL_W, d.startWidth + d.dx);
+      const width = Math.max(COL_W, d.startWidth + d.dx);
       d.node.style.width = width + 'px';
+      const font = fontPxFor(width, d.title);
+      d.node.style.setProperty('--task-font', font + 'px');
+      if(width < BULLET_HIDE_W) d.node.classList.add('hide-bullet'); else d.node.classList.remove('hide-bullet');
     }
-    d.node.style.transform = `translate3d(${tx}px,${ty}px,0)`;
-    const font = fontPxFor(width, d.title);
-    d.node.style.setProperty('--task-font', font + 'px');
-    if(width < BULLET_HIDE_W) d.node.classList.add('hide-bullet'); else d.node.classList.remove('hide-bullet');
     rafRef.current = requestAnimationFrame(animate);
   }
 
@@ -323,15 +329,28 @@ function PlannerApp(){
       pointerId: e.pointerId,
       startWidth: g.width,
       rowHeight,
-      title: t.title
+      title: t.title,
+      active: type !== 'move',
+      downAt: performance.now()
     };
-    node.classList.add('is-dragging');
-    node.style.willChange = 'transform,width';
-    document.body.classList.add('is-dragging');
+    if(dragRef.current.active){
+      node.classList.add('is-dragging');
+      node.style.willChange = 'transform,width';
+      document.body.classList.add('is-dragging');
+    }
     function onMove(ev){
       const d = dragRef.current; if(!d) return;
       d.dx = ev.clientX - d.startX;
       d.dy = ev.clientY - d.startY;
+      if(!d.active){
+        const elapsed = performance.now() - d.downAt;
+        if((Math.abs(d.dx) > DRAG_THRESHOLD_PX || Math.abs(d.dy) > DRAG_THRESHOLD_PX) && elapsed > DRAG_THRESHOLD_MS){
+          d.active = true;
+          d.node.classList.add('is-dragging');
+          d.node.style.willChange = 'transform,width';
+          document.body.classList.add('is-dragging');
+        }
+      }
     }
     function end(ev, cancel=false){
       const d = dragRef.current; if(!d) return;
@@ -347,6 +366,7 @@ function PlannerApp(){
       d.node.style.willChange = '';
       document.body.classList.remove('is-dragging');
       if(cancel) return;
+      if(!d.active || lastWasDblClickRef.current){ lastWasDblClickRef.current = false; return; }
       const dropX = ev.clientX, dropY = ev.clientY;
       setTasks(prev=>{
         const idx = prev.findIndex(x=>x.id===d.taskId); if(idx<0) return prev;
@@ -472,16 +492,16 @@ function PlannerApp(){
     </div>
   );
 
-  function TaskBar({t, draggable=true, onDoubleClick, labelSuffix="", rowHeight=ROW_H, gap=ROW_GAP}){
+  function TaskBar({t, draggable=true, onToggle, isExpanded=false, rowHeight=ROW_H, gap=ROW_GAP}){
     const g = taskGridInfo(t, weeks);
     const isNarrow = g.width < BULLET_HIDE_W;
-    const fontPx = fontPxFor(g.width, t.title + labelSuffix);
+    const fontPx = fontPxFor(g.width, t.title);
     const barRef = useRef(null);
     useEffect(()=>{
       const el = barRef.current; if(!el) return;
       const update = () => {
         const w = el.getBoundingClientRect().width;
-        const f = fontPxFor(w, t.title + labelSuffix);
+        const f = fontPxFor(w, t.title);
         el.style.setProperty('--task-font', f + 'px');
         if(w < BULLET_HIDE_W) el.classList.add('hide-bullet'); else el.classList.remove('hide-bullet');
       };
@@ -489,28 +509,38 @@ function PlannerApp(){
       const ro = new ResizeObserver(update);
       ro.observe(el);
       return () => ro.disconnect();
-    }, [t.title, labelSuffix]);
+    }, [t.title]);
     return (
       <div className="pointer-events-none absolute left-0 top-0 w-full" style={{height: rowHeight}}>
         <div
           ref={barRef}
           className={"pointer-events-auto absolute select-none rounded-lg shadow-sm group task-bar touch-none z-10" + (isNarrow ? " hide-bullet" : "")}
           style={{ left:g.left, width:g.width, top:gap/2, height:rowHeight-gap, backgroundColor:t.color, '--task-font': fontPx }}
-          onDoubleClick={onDoubleClick}
-          onPointerDown={(e)=>{ if(!draggable || e.button!==0 || e.detail>1) return; e.stopPropagation(); startDrag(e,t,'move',rowHeight,g); }}
+          onDoubleClick={(e)=>{ e.preventDefault(); e.stopPropagation(); lastWasDblClickRef.current = true; setTimeout(()=>{ lastWasDblClickRef.current = false; },0); onToggle && onToggle(); }}
+          onPointerDown={(e)=>{ if(!draggable || e.button!==0 || e.detail>1 || e.target.closest('[data-no-drag]')) return; e.stopPropagation(); startDrag(e,t,'move',rowHeight,g); }}
         >
           <div className="flex h-full items-center gap-1 pl-1 pr-2 text-slate-700" style={{fontSize:'var(--task-font)'}}>
+            {onToggle && (
+              <button
+                data-no-drag
+                onClick={(e)=>{e.stopPropagation(); onToggle();}}
+                className="w-3 flex-none text-[10px]"
+                title={isExpanded ? 'Replier' : 'Déplier'}
+              >{isExpanded ? '▾' : '▸'}</button>
+            )}
             <span className="bullet inline-block h-2 w-2 rounded" style={{backgroundColor:t.color}} />
-            <span className="truncate min-w-0 font-medium" title={`${t.title}${labelSuffix} — ${t.startISO} → ${t.endISO}`}>{t.title}{labelSuffix}</span>
+            <span className="truncate min-w-0 font-medium" title={`${t.title} — ${t.startISO} → ${t.endISO}`}>{t.title}</span>
             <div className="ml-auto hidden items-center gap-1 group-hover:flex">
               {t.parentId && (
                 <button
+                  data-no-drag
                   className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50"
                   title="Retirer de la sous-frise"
                   onClick={(e)=>{e.stopPropagation(); setTasks(prev=>prev.map(x=> x.id===t.id ? {...x,parentId:null} : x));}}
                 >↶</button>
               )}
               <button
+                data-no-drag
                 onClick={(e)=>{e.stopPropagation(); removeTask(t.id);}}
                 className="rounded border border-red-200 bg-white px-1 text-[10px] text-red-700 hover:bg-red-50"
                 title="Supprimer"
@@ -590,8 +620,8 @@ function PlannerApp(){
                         key={t.id}
                         t={t}
                         draggable={true}
-                        onDoubleClick={()=>toggleExpand(t.id)}
-                        labelSuffix={t.expanded ? " (▼)" : " (▶)"}
+                        onToggle={()=>toggleExpand(t.id)}
+                        isExpanded={t.expanded}
                       />
                     ))}
                   </div>
@@ -624,7 +654,7 @@ function PlannerApp(){
                   {/* sous-tâches (empilées par lane) */}
                   {packed.placed.map(p=>(
                     <div key={p.t.id} className="absolute left-0 top-0 w-full" style={{ height: SUB_ROW_H, transform:`translateY(${p.lane*SUB_ROW_H}px)` }}>
-                      <TaskBar t={p.t} draggable={true} onDoubleClick={()=>{}} rowHeight={SUB_ROW_H} gap={SUB_ROW_GAP} />
+                      <TaskBar t={p.t} draggable={true} rowHeight={SUB_ROW_H} gap={SUB_ROW_GAP} />
                     </div>
                   ))}
                 </div>
