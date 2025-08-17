@@ -235,27 +235,33 @@ function PlannerApp(){
        - pour CHAQUE tâche expandée dans cette ligne,
          une sous-frise (1 bloc dont la hauteur = nbLanes * ROW_H)
      Ainsi tout reste inline et scrollable, sans fenêtre. */
-  const layoutRows = useMemo(()=>{
-    // index -> { type:'main', row:number }  OU  { type:'sub', parentId, lanesCount }
+  // useMemo pour aplatir lignes principales + sous-frises
+  const layoutRows = useMemo(() => {
+    // rows = [{ type:'main', row }, { type:'sub', parentId, lanesCount }, ...]
     const rows = [];
-    const maxTopRow = Math.max(0, ...filteredTop.map(t=>t.row || 0));
+    if (!filteredTop || filteredTop.length === 0) return rows;
+
+    const maxTopRow = Math.max(0, ...filteredTop.map(t => (typeof t.row === 'number' ? t.row : 0)));
     const topByRow = new Map();
-    for(let r=0;r<=maxTopRow;r++){
-      const rowTasks = filteredTop.filter(t => (t.row||0)===r);
+
+    for (let r = 0; r <= maxTopRow; r++) {
+      const rowTasks = filteredTop.filter(t => (t.row || 0) === r);
       topByRow.set(r, rowTasks);
     }
-    for(let r=0;r<=maxTopRow;r++){
-      rows.push({ type:'main', row:r });
+
+    for (let r = 0; r <= maxTopRow; r++) {
+      rows.push({ type: 'main', row: r });
       const rowTasks = topByRow.get(r) || [];
-      // pour chaque parent expandé de cette rangée : calculer lanes de ses enfants
-      for(const p of rowTasks){
-        if(!p.expanded) continue;
-        const children = tasks.filter(t => t.parentId===p.id);
+
+      for (const p of rowTasks) {
+        if (!p.expanded) continue;
+        const children = tasks.filter(t => t.parentId === p.id);
         const { lanesCount } = packLanes(children, visibleWeeks);
-      rows.push({ type:'sub', parentId:p.id, lanesCount });
+        rows.push({ type: 'sub', parentId: p.id, lanesCount });
+      }
     }
-  }
-  return rows;
+
+    return rows;
   }, [filteredTop, tasks, visibleWeeks]);
 
   /* --------- DnD (déplacement & drop dans sous-frise) --------- */
@@ -595,10 +601,10 @@ function PlannerApp(){
         className="mx-auto max-w-[1400px] px-4 py-4 h-[82vh]"
         style={{ display:'grid', gridTemplateColumns:'1fr 360px', gridTemplateRows:'auto 1fr', gap:'24px' }}
       >
-        {/* Top bar - span 2 colonnes */}
-        <div className="flex items-center justify-between" style={{ gridColumn:'1 / -1', gridRow:1 }}>
+        {/* Top bar sur 2 colonnes */}
+        <div style={{ gridColumn:'1 / -1', gridRow:1 }} className="flex items-center justify-between">
           <button
-            onClick={()=>setPanelOpen(v=>!v)}
+            onClick={() => setPanelOpen(v => !v)}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
           >
             <span style={{fontSize:18}}>☰</span> Planificateur
@@ -606,38 +612,7 @@ function PlannerApp(){
           <h1 className="text-lg font-semibold tracking-tight">Planning (sept. 2025 → fév. 2026)</h1>
         </div>
 
-        <aside
-          className="h-full overflow-y-auto border-l border-slate-200 bg-white rounded-2xl shadow-sm flex flex-col"
-          style={{ gridColumn:'2', gridRow:2 }}
-          aria-labelledby="notes-title"
-        >
-          <div id="notes-title" className="border-b border-slate-200 px-4 py-3 font-medium text-slate-700">{selectedTask ? selectedTask.title : 'Notes'}</div>
-          <div className="p-4 space-y-4 flex-1 overflow-y-auto">
-            {selectedTask ? (
-              <>
-                {selectedTask.notes.length>0 ? (
-                  <ul className="space-y-2">
-                    {selectedTask.notes.map((n,i)=>(
-                      <li key={i} className="flex items-start gap-2">
-                        <span className="flex-1 text-sm" dangerouslySetInnerHTML={{__html: marked.parse(n)}}></span>
-                        <button className="text-xs text-red-600" onClick={()=>removeNote(i)} title="Supprimer">🗑</button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-slate-500">Aucune note</p>
-                )}
-                <form onSubmit={addNote} className="space-y-2">
-                  <textarea className="w-full rounded border border-slate-300 p-2 text-sm" rows="4" value={newNote} onChange={e=>setNewNote(e.target.value)} placeholder="Écrire en Markdown" />
-                  <button type="submit" className="rounded bg-slate-800 px-3 py-1 text-sm font-medium text-white hover:bg-slate-700">Ajouter</button>
-                </form>
-              </>
-            ) : (
-              <p className="text-sm text-slate-500">Sélectionnez une tâche pour voir ses notes.</p>
-            )}
-          </div>
-        </aside>
-        {/* Gantt - colonne gauche, ligne 2 */}
+        {/* Gantt gauche, ligne 2 */}
         <div className="relative" style={{ gridColumn:'1', gridRow:2 }}>
           {selectedTask && (
             <div className="absolute top-0 right-0 translate-x-full flex flex-col gap-1 p-1">
@@ -645,13 +620,13 @@ function PlannerApp(){
                 <button
                   className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50"
                   title="Retirer de la sous-frise"
-                  onClick={()=>setTasks(prev=>prev.map(x=> x.id===selectedTask.id ? {...x,parentId:null} : x))}
+                  onClick={() => setTasks(prev => prev.map(x => x.id === selectedTask.id ? { ...x, parentId: null } : x))}
                 >↶</button>
               )}
               <button
                 className="rounded border border-red-200 bg-white px-1 text-[10px] text-red-700 hover:bg-red-50"
                 title="Supprimer"
-                onClick={()=>{ removeTask(selectedTask.id); setSelectedTaskId(null); }}
+                onClick={() => { removeTask(selectedTask.id); setSelectedTaskId(null); }}
               >🗑</button>
             </div>
           )}
@@ -660,7 +635,7 @@ function PlannerApp(){
             ref={containerRef}
             className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm h-full max-h-full flex flex-col min-h-0"
           >
-            {header}
+            {visibleWeeks.length === 0 ? null : header}
 
             <div className="min-h-0 flex-1 overflow-auto" ref={scrollRef}>
             {/* Lignes dynamiques */}
@@ -719,9 +694,40 @@ function PlannerApp(){
           </div>
         </div>
       </div>
-      </div>
-    </div>
 
+        {/* Notes droite, ligne 2 */}
+        <aside
+          className="h-full border-l border-slate-200 bg-white rounded-2xl shadow-sm flex flex-col min-h-0"
+          style={{ gridColumn:'2', gridRow:2 }}
+          aria-labelledby="notes-title"
+        >
+          <div id="notes-title" className="border-b border-slate-200 px-4 py-3 font-medium text-slate-700">{selectedTask ? selectedTask.title : 'Notes'}</div>
+          <div className="p-4 space-y-4 flex-1 overflow-y-auto">
+            {selectedTask ? (
+              <>
+                {selectedTask.notes.length>0 ? (
+                  <ul className="space-y-2">
+                    {selectedTask.notes.map((n,i)=>(
+                      <li key={i} className="flex items-start gap-2">
+                        <span className="flex-1 text-sm" dangerouslySetInnerHTML={{__html: marked.parse(n)}}></span>
+                        <button className="text-xs text-red-600" onClick={()=>removeNote(i)} title="Supprimer">🗑</button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-slate-500">Aucune note</p>
+                )}
+                <form onSubmit={addNote} className="space-y-2">
+                  <textarea className="w-full rounded border border-slate-300 p-2 text-sm" rows="4" value={newNote} onChange={e=>setNewNote(e.target.value)} placeholder="Écrire en Markdown" />
+                  <button type="submit" className="rounded bg-slate-800 px-3 py-1 text-sm font-medium text-white hover:bg-slate-700">Ajouter</button>
+                </form>
+              </>
+            ) : (
+              <p className="text-sm text-slate-500">Sélectionnez une tâche pour voir ses notes.</p>
+            )}
+          </div>
+        </aside>
+      </div>
         {categories.length>0 && (
         <footer className="w-full max-w-[1400px] mx-auto px-4 pb-4">
           <div className="flex flex-wrap items-center gap-2">
