@@ -239,13 +239,14 @@ function PlannerApp(){
   const [drag,setDrag]=useState(null);
   useEffect(()=>{
     if(!drag) return;
-    function onMove(e){ setDrag(d => d ? {...d, dx:e.clientX - d.startX} : d); }
+    function onMove(e){ setDrag(d => d ? {...d, dx:e.clientX - d.startX, dy:e.clientY - d.startY} : d); }
     function onUp(){
       setTasks(prev=>{
         const d=drag; if(!d) return prev;
         const idx=prev.findIndex(t=>t.id===d.taskId); if(idx<0) return prev;
-        const t=prev[idx]; const { span }=taskToGrid(t); const deltaWeeks=Math.round((d.dx||0)/colWidthPx); if(deltaWeeks===0) return prev.slice();
-        if(d.type==='move'){ const ns=addWeeksISO(t.startISO,deltaWeeks,TIMELINE_START,TIMELINE_END); const ne=addWeeksISO(t.endISO,deltaWeeks,TIMELINE_START,TIMELINE_END); const updated={...t,startISO:ns,endISO:ne}; const copy=prev.slice(); copy[idx]=updated; return copy; }
+        const t=prev[idx]; const { span }=taskToGrid(t); const deltaWeeks=Math.round((d.dx||0)/colWidthPx); const deltaRows=Math.round((d.dy||0)/ROW_H);
+        if(deltaWeeks===0 && deltaRows===0) return prev.slice();
+        if(d.type==='move'){ const ns=addWeeksISO(t.startISO,deltaWeeks,TIMELINE_START,TIMELINE_END); const ne=addWeeksISO(t.endISO,deltaWeeks,TIMELINE_START,TIMELINE_END); const newRow=Math.max(0,(t.row??0)+deltaRows); const updated={...t,startISO:ns,endISO:ne,row:newRow}; const copy=prev.slice(); copy[idx]=updated; return copy; }
         if(d.type==='right'){ const ne=addWeeksISO(t.endISO,deltaWeeks,TIMELINE_START,TIMELINE_END); const newT=new Date(ne); const sT=startOfWeek(new Date(t.startISO)); const eT=startOfWeek(newT); const newSpan=Math.max(1,Math.round((eT-sT)/(MS_DAY*7))+1); const adjWeeks=newSpan-span; const neAdj=addWeeksISO(t.endISO,adjWeeks,TIMELINE_START,TIMELINE_END); const updated={...t,endISO:neAdj}; const copy=prev.slice(); copy[idx]=updated; return copy; }
         if(d.type==='left'){ let ns=addWeeksISO(t.startISO,deltaWeeks,TIMELINE_START,TIMELINE_END); const sT=startOfWeek(new Date(ns)); const eT=startOfWeek(new Date(t.endISO)); let newSpan=Math.max(1,Math.round((eT-sT)/(MS_DAY*7))+1); if(newSpan<1) newSpan=1; const endIdx=weekIndexOf(new Date(t.endISO)); const startIdxNew=Math.max(0,endIdx-(newSpan-1)); const nsDate=new Date(TIMELINE_START.getTime()+startIdxNew*7*MS_DAY); ns=toISODate(clampDate(nsDate,TIMELINE_START,TIMELINE_END)); const updated={...t,startISO:ns}; const copy=prev.slice(); copy[idx]=updated; return copy; }
         return prev;
@@ -433,9 +434,11 @@ function PlannerApp(){
                     const {startIdx,span}=taskToGrid(t);
                     const leftPx=startIdx*colWidthPx; const widthPx=span*colWidthPx;
                     const isDragging=drag && drag.taskId===t.id;
-                    let leftAdj=leftPx, widthAdj=widthPx;
-                    if(isDragging){ if(drag.type==='move') leftAdj=leftPx+(drag.dx||0); if(drag.type==='right') widthAdj=Math.max(colWidthPx,widthPx+(drag.dx||0)); if(drag.type==='left'){ const w=Math.max(colWidthPx,widthPx-(drag.dx||0)); leftAdj=leftPx+(drag.dx||0); widthAdj=w; } }
+                    let leftAdj=leftPx, widthAdj=widthPx, topAdj=ROW_GAP/2;
+                    if(isDragging){ if(drag.type==='move'){ leftAdj=leftPx+(drag.dx||0); topAdj=ROW_GAP/2+(drag.dy||0); } if(drag.type==='right') widthAdj=Math.max(colWidthPx,widthPx+(drag.dx||0)); if(drag.type==='left'){ const w=Math.max(colWidthPx,widthPx-(drag.dx||0)); leftAdj=leftPx+(drag.dx||0); widthAdj=w; } }
                     const isNarrow=widthAdj<64; const noteCount=Array.isArray(t.notes)?t.notes.length:0;
+                    const charWidth=0.6;
+                    const fontPx=Math.min(11, Math.max(8, Math.floor(widthAdj/(charWidth*Math.max(1, t.title.length)))));
                     return (
                       <div key={t.id} className="pointer-events-none absolute left-0 top-0 w-full" style={{ height: ROW_H }}>
                         <div
@@ -443,25 +446,23 @@ function PlannerApp(){
                           style={{
                             left: leftAdj,
                             width: widthAdj,
-                            top: ROW_GAP / 2,
+                            top: topAdj,
                             height: ROW_H - ROW_GAP,
                             backgroundColor: t.color
                           }}
                         >
                           {noteCount>0 && <span className="absolute -top-1 -left-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border border-white bg-slate-900 px-1 text-[10px] font-semibold text-white">{noteCount}</span>}
-                          <div className="flex h-full items-center gap-1 pl-1 pr-2 text-[11px] text-slate-700">
+                          <div className="flex h-full items-center gap-1 pl-1 pr-2 text-slate-700" style={{fontSize:fontPx}}>
                             {!isNarrow && <span className="inline-block h-2 w-2 rounded" style={{backgroundColor:t.color}}/>}
-                            <span className="truncate min-w-0 font-medium" title={`${t.title} — ${t.startISO} → ${t.endISO}`}>{t.title}</span>
+                            <span className="min-w-0 font-medium whitespace-nowrap" title={`${t.title} — ${t.startISO} → ${t.endISO}`}>{t.title}</span>
                             <div className="ml-auto hidden items-center gap-1 group-hover:flex">
-                              <button onClick={()=>changeRow(t.id,-1)} className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" title="Monter">↑</button>
-                              <button onClick={()=>changeRow(t.id,+1)} className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" title="Descendre">↓</button>
                               <button onClick={()=>openNotes(t.id)} className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" title="Notes">💬</button>
                               <button onClick={()=>removeTask(t.id)} className="rounded border border-red-200 bg-white px-1 text-[10px] text-red-700 hover:bg-red-50" title="Supprimer">🗑</button>
                             </div>
                           </div>
-                          <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'move',startX:e.clientX,dx:0})} className="absolute inset-y-0 left-2 w-8 cursor-grab" title="Déplacer" />
-                          <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'left',startX:e.clientX,dx:0})}  className="absolute inset-y-0 left-0 w-2 cursor-w-resize" title="Ajuster début" />
-                          <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'right',startX:e.clientX,dx:0})} className="absolute inset-y-0 right-0 w-2 cursor-e-resize" title="Ajuster fin" />
+                          <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'move',startX:e.clientX,startY:e.clientY,dx:0,dy:0})} className="absolute inset-y-0 left-2 w-8 cursor-grab" title="Déplacer" />
+                          <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'left',startX:e.clientX,startY:e.clientY,dx:0,dy:0})}  className="absolute inset-y-0 left-0 w-2 cursor-w-resize" title="Ajuster début" />
+                          <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'right',startX:e.clientX,startY:e.clientY,dx:0,dy:0})} className="absolute inset-y-0 right-0 w-2 cursor-e-resize" title="Ajuster fin" />
                           {noteEditor.taskId===t.id && (
                             <div className="absolute right-0 top-[110%] z-20 w-[280px] rounded-xl border border-slate-200 bg-white p-3 text-[12px] shadow-lg">
                               <div className="mb-2 flex items-center justify-between"><div className="font-medium">Notes</div><button className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" onClick={()=>setNoteEditor({taskId:null,draft:""})}>✕</button></div>
