@@ -601,7 +601,38 @@ function PlannerApp(){
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
-      <div className="mx-auto max-w-[1400px] px-4 py-4" style={{display:'grid',gridTemplateColumns:'1fr 360px',gap:'24px'}}>
+      <div className="mx-auto max-w-[1400px] px-4 py-4" style={{display:'grid',gridTemplateColumns:'360px 1fr',gap:'24px'}}>
+        <aside
+          className="sticky h-[82vh] overflow-y-auto border-r border-slate-200 bg-white rounded-2xl shadow-sm flex flex-col"
+          style={{ top: headerHeight + 16 }}
+          aria-labelledby="notes-title"
+        >
+          <div id="notes-title" className="border-b border-slate-200 px-4 py-3 font-medium text-slate-700">{selectedTask ? selectedTask.title : 'Notes'}</div>
+          <div className="p-4 space-y-4 flex-1 overflow-y-auto">
+            {selectedTask ? (
+              <>
+                {selectedTask.notes.length>0 ? (
+                  <ul className="space-y-2">
+                    {selectedTask.notes.map((n,i)=>(
+                      <li key={i} className="flex items-start gap-2">
+                        <span className="flex-1 text-sm" dangerouslySetInnerHTML={{__html: marked.parse(n)}}></span>
+                        <button className="text-xs text-red-600" onClick={()=>removeNote(i)} title="Supprimer">🗑</button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-slate-500">Aucune note</p>
+                )}
+                <form onSubmit={addNote} className="space-y-2">
+                  <textarea className="w-full rounded border border-slate-300 p-2 text-sm" rows="4" value={newNote} onChange={e=>setNewNote(e.target.value)} placeholder="Écrire en Markdown" />
+                  <button type="submit" className="rounded bg-slate-800 px-3 py-1 text-sm font-medium text-white hover:bg-slate-700">Ajouter</button>
+                </form>
+              </>
+            ) : (
+              <p className="text-sm text-slate-500">Sélectionnez une tâche pour voir ses notes.</p>
+            )}
+          </div>
+        </aside>
         <div className="flex flex-col">
         {/* Top bar */}
         <div className="mb-4 flex items-center justify-between">
@@ -691,41 +722,8 @@ function PlannerApp(){
             })}
           </div>
         </div>
-
         </div>
-
-        <aside
-          className="sticky h-[82vh] overflow-y-auto border-l border-slate-200 bg-white rounded-2xl shadow-sm flex flex-col"
-          style={{ top: headerHeight + 16 }}
-          aria-labelledby="notes-title"
-        >
-          <div id="notes-title" className="border-b border-slate-200 px-4 py-3 font-medium text-slate-700">{selectedTask ? selectedTask.title : 'Notes'}</div>
-          <div className="p-4 space-y-4 flex-1 overflow-y-auto">
-            {selectedTask ? (
-              <>
-                {selectedTask.notes.length>0 ? (
-                  <ul className="space-y-2">
-                    {selectedTask.notes.map((n,i)=>(
-                      <li key={i} className="flex items-start gap-2">
-                        <span className="flex-1 text-sm" dangerouslySetInnerHTML={{__html: marked.parse(n)}}></span>
-                        <button className="text-xs text-red-600" onClick={()=>removeNote(i)} title="Supprimer">🗑</button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-slate-500">Aucune note</p>
-                )}
-                <form onSubmit={addNote} className="space-y-2">
-                  <textarea className="w-full rounded border border-slate-300 p-2 text-sm" rows="4" value={newNote} onChange={e=>setNewNote(e.target.value)} placeholder="Écrire en Markdown" />
-                  <button type="submit" className="rounded bg-slate-800 px-3 py-1 text-sm font-medium text-white hover:bg-slate-700">Ajouter</button>
-                </form>
-              </>
-            ) : (
-              <p className="text-sm text-slate-500">Sélectionnez une tâche pour voir ses notes.</p>
-            )}
-          </div>
-        </aside>
-
+        </div>
         </div>
 
       {categories.length>0 && (
