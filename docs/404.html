@@ -603,14 +603,14 @@ function PlannerApp(){
       >
         {/* Top bar sur 2 colonnes */}
         <div style={{ gridColumn:'1 / -1', gridRow:1 }} className="flex items-center justify-between">
-          <img src="logo.png" alt="Logo" className="h-12 w-auto" />
-          <h1 className="text-lg font-semibold tracking-tight">planning D.U 17</h1>
           <button
             onClick={() => setPanelOpen(v => !v)}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
           >
             <span style={{fontSize:18}}>☰</span> Planificateur
           </button>
+          <h1 className="text-lg font-semibold tracking-tight">planning D.U 17</h1>
+          <img src="logo.png" alt="Logo" className="h-12 w-auto" />
         </div>
 
         {/* Gantt gauche, ligne 2 */}
