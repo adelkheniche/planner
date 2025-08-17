@@ -101,7 +101,11 @@ function b64Decode(str){ try{ return decodeURIComponent(escape(atob(str))); }cat
 const PALETTE = ["#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9","#ef4444","#22c55e","#f59e0b","#64748b","#d946ef","#14b8a6","#a16207"];
 
 /* ---------- Utils Gantt ---------- */
-function weekIndexOf(date, weeks){ const s=startOfWeek(clampDate(date, TIMELINE_START, TIMELINE_END)); const idx=Math.round((s.getTime()-TIMELINE_START.getTime())/(MS_DAY*7)); return Math.max(0, Math.min(weeks.length-1, idx)); }
+function weekIndexOf(date, weeks){
+  const s = startOfWeek(clampDate(date, TIMELINE_START, TIMELINE_END));
+  const idx = weeks.findIndex(w=>w.getTime()===s.getTime());
+  return idx<0 ? weeks.length-1 : idx;
+}
 function taskGridInfo(task, weeks){
   const sIdx = weekIndexOf(new Date(task.startISO), weeks);
   const eIdx = weekIndexOf(new Date(task.endISO),   weeks);
@@ -141,16 +145,20 @@ function fontPxFor(width, title){
 /* ---------- Composant ---------- */
 function PlannerApp(){
   const weeks = useMemo(()=>eachWeekOfInterval(TIMELINE_START, TIMELINE_END),[]);
+  const visibleWeeks = useMemo(
+    ()=>weeks.filter(w=>!(w.getFullYear()===2026 && w.getMonth()===1)),
+    [weeks]
+  );
   const monthSegments = useMemo(()=>{
-    if(weeks.length===0) return [];
-    const segs=[]; let currentLabel=fmtMonthYear.format(new Date(weeks[0].getTime()+MS_DAY*3)); let span=0;
-    for(let i=0;i<weeks.length;i++){
-      const label=fmtMonthYear.format(new Date(weeks[i].getTime()+MS_DAY*3));
+    if(visibleWeeks.length===0) return [];
+    const segs=[]; let currentLabel=fmtMonthYear.format(new Date(visibleWeeks[0].getTime()+MS_DAY*3)); let span=0;
+    for(let i=0;i<visibleWeeks.length;i++){
+      const label=fmtMonthYear.format(new Date(visibleWeeks[i].getTime()+MS_DAY*3));
       if(label===currentLabel) span++;
       else { segs.push({label:currentLabel,span}); currentLabel=label; span=1; }
     }
     segs.push({label:currentLabel,span}); return segs;
-  },[weeks]);
+  },[visibleWeeks]);
 
   // état initial
   const initial = loadState();
@@ -163,6 +171,13 @@ function PlannerApp(){
     expanded: !!t.expanded,
     parentId: t.parentId || null
   })));
+  const [selectedTaskId,setSelectedTaskId] = useState(null);
+  const [newNote,setNewNote] = useState("");
+  const dragHappenedRef = useRef(false);
+  const selectedTask = useMemo(
+    ()=>tasks.find(t=>t.id===selectedTaskId) || null,
+    [selectedTaskId,tasks]
+  );
   const [panelOpen,setPanelOpen] = useState(false);
 
   // synchro Supabase (inchangé)
@@ -233,12 +248,12 @@ function PlannerApp(){
       for(const p of rowTasks){
         if(!p.expanded) continue;
         const children = tasks.filter(t => t.parentId===p.id);
-        const { lanesCount } = packLanes(children, weeks);
-        rows.push({ type:'sub', parentId:p.id, lanesCount });
-      }
+        const { lanesCount } = packLanes(children, visibleWeeks);
+      rows.push({ type:'sub', parentId:p.id, lanesCount });
     }
-    return rows;
-  }, [filteredTop, tasks, weeks]);
+  }
+  return rows;
+  }, [filteredTop, tasks, visibleWeeks]);
 
   /* --------- DnD (déplacement & drop dans sous-frise) --------- */
   const dragRef = useRef(null);          // {taskId,type,startX,startY,dx,dy,...}
@@ -354,6 +369,7 @@ function PlannerApp(){
     }
     function end(ev, cancel=false){
       const d = dragRef.current; if(!d) return;
+      dragHappenedRef.current = d.active;
       dragRef.current = null;
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener('pointermove', onMove);
@@ -420,6 +436,17 @@ function PlannerApp(){
     setTasks(prev => prev.map(t => t.categoryId===id ? { ...t, color } : t));
   }
 
+  function addNote(e){
+    e.preventDefault();
+    if(!selectedTask || !newNote.trim()) return;
+    setTasks(prev=>prev.map(t=>t.id===selectedTask.id?{...t,notes:[...t.notes,newNote.trim()]}:t));
+    setNewNote("");
+  }
+  function removeNote(idx){
+    if(!selectedTask) return;
+    setTasks(prev=>prev.map(t=>t.id===selectedTask.id?{...t,notes:t.notes.filter((_,i)=>i!==idx)}:t));
+  }
+
   /* --------- Ajout tâche --------- */
   const [newTask, setNewTask] = useState({
     title: "",
@@ -472,7 +499,7 @@ function PlannerApp(){
   }
 
   /* --------- Rendu --------- */
-  const gridCols = `repeat(${weeks.length}, ${COL_W}px)`;
+  const gridCols = `repeat(${visibleWeeks.length}, ${COL_W}px)`;
   const header = (
     <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90">
       <div style={{display:'grid', gridTemplateColumns:gridCols}}>
@@ -483,7 +510,7 @@ function PlannerApp(){
         ))}
       </div>
       <div className="border-t border-slate-100" style={{display:'grid', gridTemplateColumns:gridCols}}>
-        {weeks.map((w,i)=>(
+        {visibleWeeks.map((w,i)=>(
           <div key={i} className="flex items-center justify-center border-r border-slate-100 px-1 py-1 text-[10px] text-slate-500" title={`${fmtDM.format(w)} → ${fmtDM.format(new Date(w.getTime()+MS_DAY*6))}`}>
             S{String(getISOWeek(w)).padStart(2,'0')}
           </div>
@@ -493,7 +520,7 @@ function PlannerApp(){
   );
 
   function TaskBar({t, draggable=true, onToggle, isExpanded=false, rowHeight=ROW_H, gap=ROW_GAP}){
-    const g = taskGridInfo(t, weeks);
+    const g = taskGridInfo(t, visibleWeeks);
     const isNarrow = g.width < BULLET_HIDE_W;
     const fontPx = fontPxFor(g.width, t.title);
     const barRef = useRef(null);
@@ -517,6 +544,7 @@ function PlannerApp(){
           className={"pointer-events-auto absolute select-none rounded-lg shadow-sm group task-bar touch-none z-10" + (isNarrow ? " hide-bullet" : "")}
           style={{ left:g.left, width:g.width, top:gap/2, height:rowHeight-gap, backgroundColor:t.color, '--task-font': fontPx }}
           onDoubleClick={(e)=>{ e.preventDefault(); e.stopPropagation(); lastWasDblClickRef.current = true; setTimeout(()=>{ lastWasDblClickRef.current = false; },0); onToggle && onToggle(); }}
+          onClick={(e)=>{ if(dragHappenedRef.current){ dragHappenedRef.current=false; return; } if(lastWasDblClickRef.current){ lastWasDblClickRef.current=false; return; } setSelectedTaskId(t.id); }}
           onPointerDown={(e)=>{ if(!draggable || e.button!==0 || e.detail>1 || e.target.closest('[data-no-drag]')) return; e.stopPropagation(); startDrag(e,t,'move',rowHeight,g); }}
         >
           <div className="flex h-full items-center gap-1 pl-1 pr-2 text-slate-700" style={{fontSize:'var(--task-font)'}}>
@@ -571,7 +599,8 @@ function PlannerApp(){
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
-      <div className="mx-auto max-w-[1400px] px-4 py-4">
+      <div className="mx-auto max-w-[1400px] px-4 py-4" style={{display:'grid',gridTemplateColumns:'1fr 360px',gap:'24px'}}>
+        <div className="flex flex-col">
         {/* Top bar */}
         <div className="mb-4 flex items-center justify-between">
           <button
@@ -614,7 +643,7 @@ function PlannerApp(){
                 const rowTasks = filteredTop.filter(t => (t.row||0)===row.row);
                 return (
                   <div key={`main-${i}`} className="relative border-b border-slate-100" style={{ display:'grid', gridTemplateColumns:gridCols, height: ROW_H }}>
-                    {weeks.map((_,ci)=><div key={ci} className={(ci%2===0?"border-slate-50":"border-slate-100")+" border-r"} />)}
+                    {visibleWeeks.map((_,ci)=><div key={ci} className={(ci%2===0?"border-slate-50":"border-slate-100")+" border-r"} />)}
                     {rowTasks.map(t=>(
                       <TaskBar
                         key={t.id}
@@ -632,7 +661,7 @@ function PlannerApp(){
               const parent = tasks.find(t=>t.id===row.parentId);
               if(!parent) return null;
               const children = tasks.filter(t=>t.parentId===row.parentId);
-              const packed = packLanes(children, weeks);
+              const packed = packLanes(children, visibleWeeks);
 
               return (
                 <div
@@ -647,13 +676,13 @@ function PlannerApp(){
                   {Array.from({length: packed.lanesCount}).map((_,laneIdx)=>(
                     <div key={laneIdx} className="absolute left-0 right-0" style={{ top: laneIdx*SUB_ROW_H, height: SUB_ROW_H }}>
                       <div style={{display:'grid', gridTemplateColumns:gridCols, height:'100%'}}>
-                        {weeks.map((_,ci)=><div key={ci} className={(ci%2===0?"border-slate-50":"border-slate-100")+" border-r"} />)}
+                        {visibleWeeks.map((_,ci)=><div key={ci} className={(ci%2===0?"border-slate-50":"border-slate-100")+" border-r"} />)}
                       </div>
                     </div>
                   ))}
                   {/* sous-tâches (empilées par lane) */}
                   {packed.placed.map(p=>(
-                    <div key={p.t.id} className="absolute left-0 top-0 w-full" style={{ height: SUB_ROW_H, transform:`translateY(${p.lane*SUB_ROW_H}px)` }}>
+                    <div key={p.t.id} className="pointer-events-none absolute left-0 top-0 w-full" style={{ height: SUB_ROW_H, transform:`translateY(${p.lane*SUB_ROW_H}px)` }}>
                       <TaskBar t={p.t} draggable={true} rowHeight={SUB_ROW_H} gap={SUB_ROW_GAP} />
                     </div>
                   ))}
@@ -661,6 +690,38 @@ function PlannerApp(){
               );
             })}
           </div>
+        </div>
+
+        </div>
+
+        <aside className="sticky top-4 h-[82vh] overflow-y-auto border-l border-slate-200 bg-white rounded-2xl shadow-sm flex flex-col" aria-labelledby="notes-title">
+          <div id="notes-title" className="border-b border-slate-200 px-4 py-3 font-medium text-slate-700">{selectedTask ? selectedTask.title : 'Notes'}</div>
+          <div className="p-4 space-y-4 flex-1 overflow-y-auto">
+            {selectedTask ? (
+              <>
+                {selectedTask.notes.length>0 ? (
+                  <ul className="space-y-2">
+                    {selectedTask.notes.map((n,i)=>(
+                      <li key={i} className="flex items-start gap-2">
+                        <span className="flex-1 text-sm">{n}</span>
+                        <button className="text-xs text-red-600" onClick={()=>removeNote(i)} title="Supprimer">🗑</button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-slate-500">Aucune note</p>
+                )}
+                <form onSubmit={addNote} className="space-y-2">
+                  <textarea className="w-full rounded border border-slate-300 p-2 text-sm" rows="4" value={newNote} onChange={e=>setNewNote(e.target.value)} />
+                  <button type="submit" className="rounded bg-slate-800 px-3 py-1 text-sm font-medium text-white hover:bg-slate-700">Ajouter</button>
+                </form>
+              </>
+            ) : (
+              <p className="text-sm text-slate-500">Sélectionnez une tâche pour voir ses notes.</p>
+            )}
+          </div>
+        </aside>
+
         </div>
 
         {/* Panneau latéral (ajout) */}
@@ -733,7 +794,6 @@ function PlannerApp(){
           </div>
         )}
       </div>
-    </div>
   );
 }
 
