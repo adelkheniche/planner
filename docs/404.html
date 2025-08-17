@@ -418,7 +418,7 @@ function PlannerApp(){
               {Array.from({length: Math.max(0,...tasksToShow.map(t=>typeof t.row==='number'?t.row:0))+1}, (_,row)=>row).map(row=>(
                 <div key={row} className="relative border-b border-slate-100" style={{gridColumn:`1 / -1`}}>
                   <div style={{display:'grid', gridTemplateColumns:`repeat(${weeks.length}, ${colWidthPx}px)`}}>
-                    {weeks.map((_,i)=><div key={i} className={(i%2===0?"border-slate-50":"border-slate-100")+" h-8 border-r"} />)}
+                    {weeks.map((_,i)=><div key={i} className={(i%2===0?"border-slate-50":"border-slate-100")+" h-6 border-r"} />)}
                   </div>
                   {tasksToShow.filter(t=>(t.row??0)===row).map(t=>{
                     const {startIdx,span}=taskToGrid(t);
@@ -428,7 +428,7 @@ function PlannerApp(){
                     if(isDragging){ if(drag.type==='move') leftAdj=leftPx+(drag.dx||0); if(drag.type==='right') widthAdj=Math.max(colWidthPx,widthPx+(drag.dx||0)); if(drag.type==='left'){ const w=Math.max(colWidthPx,widthPx-(drag.dx||0)); leftAdj=leftPx+(drag.dx||0); widthAdj=w; } }
                     const isNarrow=widthAdj<64; const noteCount=Array.isArray(t.notes)?t.notes.length:0;
                     return (
-                      <div key={t.id} className="pointer-events-none absolute left-0 top-0 h-8 w-full">
+                      <div key={t.id} className="pointer-events-none absolute left-0 top-0 h-6 w-full">
                         <div className="pointer-events-auto absolute top-0 h-full select-none rounded-xl shadow-sm group" style={{left:leftAdj,width:widthAdj,backgroundColor:t.color}}>
                           {noteCount>0 && <span className="absolute -top-1 -left-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border border-white bg-slate-900 px-1 text-[10px] font-semibold text-white">{noteCount}</span>}
                           <div className="flex h-full items-center gap-1 pl-1 pr-2 text-[11px] text-slate-700">
