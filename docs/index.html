@@ -653,7 +653,7 @@ function PlannerApp(){
                   ))}
                   {/* sous-tâches (empilées par lane) */}
                   {packed.placed.map(p=>(
-                    <div key={p.t.id} className="absolute left-0 top-0 w-full" style={{ height: SUB_ROW_H, transform:`translateY(${p.lane*SUB_ROW_H}px)` }}>
+                    <div key={p.t.id} className="pointer-events-none absolute left-0 top-0 w-full" style={{ height: SUB_ROW_H, transform:`translateY(${p.lane*SUB_ROW_H}px)` }}>
                       <TaskBar t={p.t} draggable={true} rowHeight={SUB_ROW_H} gap={SUB_ROW_GAP} />
                     </div>
                   ))}
