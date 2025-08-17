@@ -16,6 +16,9 @@
     <!-- Supabase (optionnel, on garde la synchro telle qu'avant) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+    <!-- Markdown parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
     <meta name="color-scheme" content="light" />
     <style>
       html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
@@ -499,9 +502,20 @@ function PlannerApp(){
   }
 
   /* --------- Rendu --------- */
+  const headerRef = useRef(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  useEffect(() => {
+    function updateHeight(){
+      if(headerRef.current) setHeaderHeight(headerRef.current.offsetHeight);
+    }
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
+  }, []);
+
   const gridCols = `repeat(${visibleWeeks.length}, ${COL_W}px)`;
   const header = (
-    <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90">
+    <div ref={headerRef} className="sticky top-0 z-10 border-b border-slate-200 bg-white/90">
       <div style={{display:'grid', gridTemplateColumns:gridCols}}>
         {monthSegments.map((m,i)=>(
           <div key={`${m.label}-${i}`} className="flex items-center justify-center border-r border-slate-100 px-2 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600" style={{gridColumn:`span ${m.span} / span ${m.span}`}}>
@@ -675,7 +689,11 @@ function PlannerApp(){
 
         </div>
 
-        <aside className="sticky top-4 h-[82vh] overflow-y-auto border-l border-slate-200 bg-white rounded-2xl shadow-sm flex flex-col" aria-labelledby="notes-title">
+        <aside
+          className="sticky h-[82vh] overflow-y-auto border-l border-slate-200 bg-white rounded-2xl shadow-sm flex flex-col"
+          style={{ top: headerHeight + 16 }}
+          aria-labelledby="notes-title"
+        >
           <div id="notes-title" className="border-b border-slate-200 px-4 py-3 font-medium text-slate-700">{selectedTask ? selectedTask.title : 'Notes'}</div>
           <div className="p-4 space-y-4 flex-1 overflow-y-auto">
             {selectedTask ? (
@@ -684,7 +702,7 @@ function PlannerApp(){
                   <ul className="space-y-2">
                     {selectedTask.notes.map((n,i)=>(
                       <li key={i} className="flex items-start gap-2">
-                        <span className="flex-1 text-sm">{n}</span>
+                        <span className="flex-1 text-sm" dangerouslySetInnerHTML={{__html: marked.parse(n)}}></span>
                         <button className="text-xs text-red-600" onClick={()=>removeNote(i)} title="Supprimer">🗑</button>
                       </li>
                     ))}
@@ -693,7 +711,7 @@ function PlannerApp(){
                   <p className="text-sm text-slate-500">Aucune note</p>
                 )}
                 <form onSubmit={addNote} className="space-y-2">
-                  <textarea className="w-full rounded border border-slate-300 p-2 text-sm" rows="4" value={newNote} onChange={e=>setNewNote(e.target.value)} />
+                  <textarea className="w-full rounded border border-slate-300 p-2 text-sm" rows="4" value={newNote} onChange={e=>setNewNote(e.target.value)} placeholder="Écrire en Markdown" />
                   <button type="submit" className="rounded bg-slate-800 px-3 py-1 text-sm font-medium text-white hover:bg-slate-700">Ajouter</button>
                 </form>
               </>
