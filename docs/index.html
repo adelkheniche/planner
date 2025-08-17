@@ -42,6 +42,9 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const WEEK_STARTS_ON = 1;
 // Nombre de millisecondes dans une journée
 const MS_DAY = 24 * 60 * 60 * 1000;
+// ---- hauteur des lignes (réglage unique) ----
+const ROW_H   = 26;   // hauteur d’une ligne en px (essayez 24–28)
+const ROW_GAP = 2;    // petite marge interne pour que la barre ne colle pas au bord
 // Retourne le premier jour de la semaine pour une date donnée
 function startOfWeek(d, w = WEEK_STARTS_ON){ const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); const day=x.getDay(); const diff=(day-w+7)%7; x.setDate(x.getDate()-diff); x.setHours(0,0,0,0); return x; }
 // Retourne le dernier instant de la semaine pour une date donnée
@@ -418,7 +421,13 @@ function PlannerApp(){
               {Array.from({length: Math.max(0,...tasksToShow.map(t=>typeof t.row==='number'?t.row:0))+1}, (_,row)=>row).map(row=>(
                 <div key={row} className="relative border-b border-slate-100" style={{gridColumn:`1 / -1`}}>
                   <div style={{display:'grid', gridTemplateColumns:`repeat(${weeks.length}, ${colWidthPx}px)`}}>
-                    {weeks.map((_,i)=><div key={i} className={(i%2===0?"border-slate-50":"border-slate-100")+" h-6 border-r"} />)}
+                    {weeks.map((_,i)=>(
+                      <div
+                        key={i}
+                        className={(i%2===0?"border-slate-50":"border-slate-100")+" border-r"}
+                        style={{ height: ROW_H }}
+                      />
+                    ))}
                   </div>
                   {tasksToShow.filter(t=>(t.row??0)===row).map(t=>{
                     const {startIdx,span}=taskToGrid(t);
@@ -428,8 +437,17 @@ function PlannerApp(){
                     if(isDragging){ if(drag.type==='move') leftAdj=leftPx+(drag.dx||0); if(drag.type==='right') widthAdj=Math.max(colWidthPx,widthPx+(drag.dx||0)); if(drag.type==='left'){ const w=Math.max(colWidthPx,widthPx-(drag.dx||0)); leftAdj=leftPx+(drag.dx||0); widthAdj=w; } }
                     const isNarrow=widthAdj<64; const noteCount=Array.isArray(t.notes)?t.notes.length:0;
                     return (
-                      <div key={t.id} className="pointer-events-none absolute left-0 top-0 h-6 w-full">
-                        <div className="pointer-events-auto absolute top-0 h-full select-none rounded-xl shadow-sm group" style={{left:leftAdj,width:widthAdj,backgroundColor:t.color}}>
+                      <div key={t.id} className="pointer-events-none absolute left-0 top-0 w-full" style={{ height: ROW_H }}>
+                        <div
+                          className="pointer-events-auto absolute select-none rounded-lg shadow-sm group"
+                          style={{
+                            left: leftAdj,
+                            width: widthAdj,
+                            top: ROW_GAP / 2,
+                            height: ROW_H - ROW_GAP,
+                            backgroundColor: t.color
+                          }}
+                        >
                           {noteCount>0 && <span className="absolute -top-1 -left-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border border-white bg-slate-900 px-1 text-[10px] font-semibold text-white">{noteCount}</span>}
                           <div className="flex h-full items-center gap-1 pl-1 pr-2 text-[11px] text-slate-700">
                             {!isNarrow && <span className="inline-block h-2 w-2 rounded" style={{backgroundColor:t.color}}/>}
