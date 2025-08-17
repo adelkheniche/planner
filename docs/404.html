@@ -602,7 +602,30 @@ function PlannerApp(){
                             {/* zones drag resize/déplacement */}
                             {!isChild && (
                               <>
-                                <div onPointerDown={(e)=>{e.stopPropagation(); setDrag({taskId:t.id,type:'move',startX:e.clientX,startY:e.clientY,dx:0,dy:0});}} className="absolute inset-y-0 left-2 w-8 cursor-grab" title="Déplacer"></div>
+                                <div
+                                  onPointerDown={(e) => {
+                                    e.stopPropagation();
+                                    if (subEditor.parentId) {
+                                      // Si un éditeur de sous-frise est ouvert, démarrer un drag pour y déposer la tâche
+                                      setSubEditor((s) => ({
+                                        ...s,
+                                        drag: { taskId: t.id, x: e.clientX, y: e.clientY },
+                                      }));
+                                    } else {
+                                      // Sinon, déplacer la tâche dans la frise principale (comportement actuel)
+                                      setDrag({
+                                        taskId: t.id,
+                                        type: "move",
+                                        startX: e.clientX,
+                                        startY: e.clientY,
+                                        dx: 0,
+                                        dy: 0,
+                                      });
+                                    }
+                                  }}
+                                  className="absolute inset-y-0 left-2 w-8 cursor-grab"
+                                  title="Déplacer"
+                                ></div>
                                 <div onPointerDown={(e)=>{e.stopPropagation(); setDrag({taskId:t.id,type:'left',startX:e.clientX,dx:0});}} className="absolute inset-y-0 left-0 w-2 cursor-w-resize" title="Ajuster début"></div>
                                 <div onPointerDown={(e)=>{e.stopPropagation(); setDrag({taskId:t.id,type:'right',startX:e.clientX,dx:0});}} className="absolute inset-y-0 right-0 w-2 cursor-e-resize" title="Ajuster fin"></div>
                               </>
