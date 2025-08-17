@@ -22,7 +22,7 @@
       .task-bar { font-size: var(--task-font,11px); }
       .task-bar.is-dragging { opacity:0.9; z-index:50; cursor:grabbing; }
       .task-bar.hide-bullet .bullet { display:none; }
-      body.is-dragging { cursor:grabbing; }
+      body.is-dragging { cursor:grabbing; user-select:none; }
     </style>
   </head>
   <body>
@@ -308,9 +308,10 @@ function PlannerApp(){
   }
 
   function startDrag(e, t, type, rowHeight, g){
+    e.preventDefault();
     const node = e.target.closest('.task-bar');
     if(!node) return;
-    e.target.setPointerCapture(e.pointerId);
+    node.setPointerCapture(e.pointerId);
     dragRef.current = {
       taskId: t.id,
       type,
@@ -319,13 +320,13 @@ function PlannerApp(){
       dx: 0,
       dy: 0,
       node,
-      handle: e.target,
       pointerId: e.pointerId,
       startWidth: g.width,
       rowHeight,
       title: t.title
     };
     node.classList.add('is-dragging');
+    node.style.willChange = 'transform,width';
     document.body.classList.add('is-dragging');
     function onMove(ev){
       const d = dragRef.current; if(!d) return;
@@ -339,10 +340,11 @@ function PlannerApp(){
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('keydown', onKey);
-      d.handle.releasePointerCapture(d.pointerId);
+      d.node.releasePointerCapture(d.pointerId);
       d.node.classList.remove('is-dragging','hide-bullet');
       d.node.style.transform = '';
       d.node.style.width = d.startWidth + 'px';
+      d.node.style.willChange = '';
       document.body.classList.remove('is-dragging');
       if(cancel) return;
       const dropX = ev.clientX, dropY = ev.clientY;
@@ -474,12 +476,28 @@ function PlannerApp(){
     const g = taskGridInfo(t, weeks);
     const isNarrow = g.width < BULLET_HIDE_W;
     const fontPx = fontPxFor(g.width, t.title + labelSuffix);
+    const barRef = useRef(null);
+    useEffect(()=>{
+      const el = barRef.current; if(!el) return;
+      const update = () => {
+        const w = el.getBoundingClientRect().width;
+        const f = fontPxFor(w, t.title + labelSuffix);
+        el.style.setProperty('--task-font', f + 'px');
+        if(w < BULLET_HIDE_W) el.classList.add('hide-bullet'); else el.classList.remove('hide-bullet');
+      };
+      update();
+      const ro = new ResizeObserver(update);
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [t.title, labelSuffix]);
     return (
       <div className="pointer-events-none absolute left-0 top-0 w-full" style={{height: rowHeight}}>
         <div
-          className={"pointer-events-auto absolute select-none rounded-lg shadow-sm group task-bar" + (isNarrow ? " hide-bullet" : "")}
+          ref={barRef}
+          className={"pointer-events-auto absolute select-none rounded-lg shadow-sm group task-bar touch-none z-10" + (isNarrow ? " hide-bullet" : "")}
           style={{ left:g.left, width:g.width, top:gap/2, height:rowHeight-gap, backgroundColor:t.color, '--task-font': fontPx }}
           onDoubleClick={onDoubleClick}
+          onPointerDown={(e)=>{ if(!draggable || e.button!==0 || e.detail>1) return; e.stopPropagation(); startDrag(e,t,'move',rowHeight,g); }}
         >
           <div className="flex h-full items-center gap-1 pl-1 pr-2 text-slate-700" style={{fontSize:'var(--task-font)'}}>
             <span className="bullet inline-block h-2 w-2 rounded" style={{backgroundColor:t.color}} />
@@ -503,18 +521,15 @@ function PlannerApp(){
           {draggable && (
             <>
               <div
-                onPointerDown={(e)=>{ e.stopPropagation(); startDrag(e,t,'move',rowHeight,g); }}
-                className="absolute inset-y-0 left-2 w-8 cursor-grab"
-                title="Déplacer"
-              ></div>
-              <div
+                data-handle="left"
                 onPointerDown={(e)=>{ e.stopPropagation(); startDrag(e,t,'left',rowHeight,g); }}
-                className="absolute inset-y-0 left-0 w-2 cursor-w-resize"
+                className="absolute inset-y-0 left-0 w-2 cursor-w-resize touch-none"
                 title="Ajuster début"
               ></div>
               <div
+                data-handle="right"
                 onPointerDown={(e)=>{ e.stopPropagation(); startDrag(e,t,'right',rowHeight,g); }}
-                className="absolute inset-y-0 right-0 w-2 cursor-e-resize"
+                className="absolute inset-y-0 right-0 w-2 cursor-e-resize touch-none"
                 title="Ajuster fin"
               ></div>
             </>
