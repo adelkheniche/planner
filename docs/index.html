@@ -183,6 +183,7 @@ function PlannerApp(){
     [selectedTaskId,tasks]
   );
   const [panelOpen,setPanelOpen] = useState(false);
+  const [notesOpen,setNotesOpen] = useState(true);
 
   // synchro Supabase (inchangé)
   useEffect(()=>{
@@ -600,7 +601,7 @@ function PlannerApp(){
     <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
       <div
         className="mx-auto max-w-full px-2 py-4 h-[82vh]"
-        style={{ display:'grid', gridTemplateColumns:'1fr 360px', gridTemplateRows:'auto 1fr', gap:'24px' }}
+        style={{ display:'grid', gridTemplateColumns: notesOpen ? '1fr 360px' : '1fr', gridTemplateRows:'auto 1fr', gap:'24px' }}
       >
         {/* Top bar sur 2 colonnes */}
         <div style={{ gridColumn:'1 / -1', gridRow:1 }} className="flex items-center justify-between">
@@ -698,12 +699,16 @@ function PlannerApp(){
       </div>
 
         {/* Notes droite, ligne 2 */}
-        <aside
+        {notesOpen && (
+          <aside
           className="h-full border-l border-slate-200 bg-white rounded-2xl shadow-sm flex flex-col min-h-0"
           style={{ gridColumn:'2', gridRow:2 }}
           aria-labelledby="notes-title"
         >
-          <div id="notes-title" className="border-b border-slate-200 px-4 py-3 font-medium text-slate-700">{selectedTask ? selectedTask.title : 'Notes'}</div>
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+            <div id="notes-title" className="font-medium text-slate-700">{selectedTask ? selectedTask.title : 'Notes'}</div>
+            <button onClick={()=>setNotesOpen(false)} className="rounded-full border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 hover:bg-slate-50" aria-label="Masquer les notes">❯</button>
+          </div>
           <div className="p-4 space-y-4 flex-1 overflow-y-auto">
             {selectedTask ? (
               <>
@@ -728,8 +733,17 @@ function PlannerApp(){
               <p className="text-sm text-slate-500">Sélectionnez une tâche pour voir ses notes.</p>
             )}
           </div>
-        </aside>
+          </aside>
+        )}
       </div>
+      {!notesOpen && (
+        <button
+          onClick={()=>setNotesOpen(true)}
+          className="fixed right-0 top-1/2 z-40 -translate-y-1/2 transform rounded-l-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 shadow"
+        >
+          Notes
+        </button>
+      )}
         {categories.length>0 && (
         <footer className="w-full max-w-full mx-auto px-2 pb-4">
           <div className="flex flex-wrap items-center gap-2">
