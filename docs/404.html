@@ -1,15 +1,22 @@
+```html
 <!doctype html>
 <html lang="fr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Planning (sept. 2025 → fév. 2026)</title>
-    <!-- Tailwind CDN (prototypage sans build) -->
+
+    <!-- Tailwind CDN (prototypage) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React 18 UMD + Babel (transpile JSX dans le navigateur) -->
+
+    <!-- React 18 UMD + Babel -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Supabase JS v2 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
     <meta name="color-scheme" content="light" />
     <style>
       html{ -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
@@ -17,73 +24,52 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- Point de montage où l'application React sera rendue -->
-    <!-- Supabase JS v2 (UMD) -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    <!-- App React -->
     <script type="text/babel" data-presets="env,react">
-/* ==== App React ==== */
-// Récupère les hooks React utilisés dans l'application
-const { useEffect, useMemo, useState } = React;
+/* ============= App ============= */
+const { useEffect, useMemo, useRef, useState } = React;
 
-/* Supabase */
-// Paramètres de connexion au projet Supabase
-const SUPABASE_URL = "https://kadoikpkjmkchabvnuqs.supabase.co";
-// Clé publique permettant l'accès anonyme à l'API
+/* ---------- Config Supabase ---------- */
+const SUPABASE_URL      = "https://kadoikpkjmkchabvnuqs.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZG9pa3Bram1rY2hhYnZudXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMzEwNDIsImV4cCI6MjA3MDkwNzA0Mn0.q28StZ8nsrbck2Xx6xBCfpgdfLotxne3cyWc6-o_FZM";
-// Identifiant du document à charger/enregistrer côté base
-const DOC_SLUG = "main";
-// Client Supabase utilisé pour toutes les requêtes
+const DOC_SLUG          = "main";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-/* Dates / utilitaires */
-// Jour de début de semaine (1 = lundi)
+/* ---------- Dates / utils ---------- */
 const WEEK_STARTS_ON = 1;
-// Nombre de millisecondes dans une journée
 const MS_DAY = 24 * 60 * 60 * 1000;
-// ---- hauteur des lignes (réglage unique) ----
-const ROW_H   = 26;   // hauteur d’une ligne en px (essayez 24–28)
-const ROW_GAP = 2;    // petite marge interne pour que la barre ne colle pas au bord
-// Retourne le premier jour de la semaine pour une date donnée
-function startOfWeek(d, w = WEEK_STARTS_ON){ const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); const day=x.getDay(); const diff=(day-w+7)%7; x.setDate(x.getDate()-diff); x.setHours(0,0,0,0); return x; }
-// Retourne le dernier instant de la semaine pour une date donnée
-function endOfWeek(d, w = WEEK_STARTS_ON){ const s=startOfWeek(d,w); const e=new Date(s.getTime()+MS_DAY*6); e.setHours(23,59,59,999); return e; }
-// Force une date à rester dans un intervalle donné
+
+/* Hauteur unique des lignes (contrôle espacement) */
+const ROW_H   = 24; // ← ajustez ici (22–28)
+const ROW_GAP = 2;
+
+function startOfWeek(d, w=WEEK_STARTS_ON){ const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); const day=x.getDay(); const diff=(day-w+7)%7; x.setDate(x.getDate()-diff); x.setHours(0,0,0,0); return x; }
+function endOfWeek(d, w=WEEK_STARTS_ON){ const s=startOfWeek(d,w); const e=new Date(s.getTime()+MS_DAY*6); e.setHours(23,59,59,999); return e; }
 function clampDate(d,minD,maxD){ if(d<minD) return new Date(minD); if(d>maxD) return new Date(maxD); return d; }
-// Convertit un objet Date en chaîne ISO (YYYY-MM-DD)
 function toISODate(d){ const yyyy=d.getFullYear(); const mm=String(d.getMonth()+1).padStart(2,"0"); const dd=String(d.getDate()).padStart(2,"0"); return `${yyyy}-${mm}-${dd}`; }
-// Ajoute n semaines à une date ISO tout en respectant des bornes min/max
 function addWeeksISO(iso,n,minD,maxD){ const d=new Date(iso); d.setDate(d.getDate()+7*n); return toISODate(clampDate(d,minD,maxD)); }
-const fmtMonthYear = new Intl.DateTimeFormat("fr-FR",{month:"long",year:"numeric"});
-const fmtDM = new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"short"});
-// Calcule le numéro de semaine ISO pour une date donnée
 function getISOWeek(date){ const d=new Date(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate())); const dayNum=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-dayNum); const yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1)); return Math.ceil(((d-yearStart)/MS_DAY+1)/7); }
 
-// Limites de la frise chronologique (arrondies à des semaines complètes)
+const fmtMonthYear = new Intl.DateTimeFormat("fr-FR",{month:"long",year:"numeric"});
+const fmtDM = new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"short"});
+
 const TIMELINE_START = startOfWeek(new Date(2025, 8, 1));
-const TIMELINE_END   = endOfWeek(new Date(2026, 1, 28)); /* <-- bug corrigé (plus de "one:") */
+const TIMELINE_END   = endOfWeek(new Date(2026, 1, 28));
 
- // Renvoie la liste des débuts de semaines entre deux dates incluses
- function eachWeekOfInterval(start,end){
-   const weeks=[]; let cur=startOfWeek(start); const endW=startOfWeek(end);
-   while(cur<=endW){ weeks.push(new Date(cur)); const next=new Date(cur); next.setDate(next.getDate()+7); cur=startOfWeek(next); if(weeks.length>400) break; }
-   return weeks;
- }
+function eachWeekOfInterval(start,end){
+  const weeks=[]; let cur=startOfWeek(start); const endW=startOfWeek(end);
+  while(cur<=endW){ weeks.push(new Date(cur)); const next=new Date(cur); next.setDate(next.getDate()+7); cur=startOfWeek(next); if(weeks.length>400) break; }
+  return weeks;
+}
 
-/* Cache local */
-// Clé de stockage local pour persister l'état
+/* ---------- Cache local ---------- */
 const LS_KEY = "gantt-sept2025-fev2026";
-// Récupère l'état sauvegardé depuis le localStorage
 function loadState(){ try{ const raw=localStorage.getItem(LS_KEY); return raw?JSON.parse(raw):null; }catch{ return null; } }
-// Enregistre l'état actuel dans le localStorage
 function saveState(state){ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch{} }
 
-/* Transfert via URL (#s=base64) */
-// Encodage/decodage base64 pour le transfert d'état via l'URL
+/* ---------- Transfert par URL (#s=base64) ---------- */
 function b64Encode(str){ try{ return btoa(unescape(encodeURIComponent(str))); }catch{ return btoa(str);} }
 function b64Decode(str){ try{ return decodeURIComponent(escape(atob(str))); }catch{ return atob(str);} }
-// Permet d'importer un état depuis le hash de l'URL (#s=base64)
 (function importFromHash(){
   try{
     const h=location.hash;
@@ -95,7 +81,7 @@ function b64Decode(str){ try{ return decodeURIComponent(escape(atob(str))); }cat
   }catch(e){ console.warn("State-from-hash failed",e); }
 })();
 
-// Composant React interceptant les erreurs de rendu
+/* ---------- Error boundary ---------- */
 class ErrorBoundary extends React.Component{
   constructor(p){ super(p); this.state={error:null}; }
   static getDerivedStateFromError(e){ return {error:e}; }
@@ -110,14 +96,12 @@ class ErrorBoundary extends React.Component{
   }
 }
 
-// Palette de couleurs proposée pour les catégories et tâches
-const PALETTE=["#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9","#ef4444","#22c55e","#f59e0b","#64748b","#d946ef","#14b8a6","#a16207"];
-
-// Composant principal du planificateur
+/* ---------- App ---------- */
 function PlannerApp(){
-  // Tableau des semaines affichées dans la frise
   const weeks = useMemo(()=>eachWeekOfInterval(TIMELINE_START,TIMELINE_END),[]);
-  // Découpe des semaines par mois pour l'en-tête
+  const colWidthPx = 44;
+  const totalWidthPx = weeks.length * colWidthPx;
+
   const monthSegments = useMemo(()=>{
     if(weeks.length===0) return [];
     const segs=[]; let currentLabel=fmtMonthYear.format(new Date(weeks[0].getTime()+MS_DAY*3)); let span=0;
@@ -125,100 +109,123 @@ function PlannerApp(){
     segs.push({label:currentLabel,span}); return segs;
   },[weeks]);
 
-  // État initial issu du cache local
+  /* State principal */
   const initial = loadState();
-  // Liste des catégories affichées
   const [categories,setCategories] = useState(initial?.categories || []);
-  // Liste des tâches planifiées
   const [tasks,setTasks] = useState((initial?.tasks || []).map((t,i)=>({
     ...t,
-    row: typeof t.row === 'number' ? t.row : i,
-    subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
+    row: typeof t.row === "number" ? t.row : i,
+    subtasks: Array.isArray(t.subtasks) ? t.subtasks : [], // tableau d'IDs de tâches
     expanded: !!t.expanded
   })));
-  // Informations de synchronisation avec Supabase
-  const [sync,setSync] = useState({status:'idle',ts:null,error:null});
-  // Affichage des outils de test
-  const [showTests,setShowTests]=useState(false);
-  // Ouverture du panneau latéral
-  const [panelOpen,setPanelOpen]=useState(false);
 
-  /* Charger depuis Supabase */
+  const [sync,setSync]=useState({status:'idle',ts:null,error:null});
+  const [panelOpen,setPanelOpen]=useState(false);
+  const [showTests,setShowTests]=useState(false);
+
+  /* Éditeur de sous-frise (modal) */
+  const [subEditor,setSubEditor] = useState({
+    parentId: null, // id de la tâche parente
+    drag: null      // { taskId, x, y } pour le glisser depuis la bibliothèque
+  });
+  const dropRef = useRef(null); // zone de drop de la sous-frise
+
+  function openSubEditor(parentId){ setSubEditor({ parentId, drag:null }); }
+  function closeSubEditor(){ setSubEditor({ parentId:null, drag:null }); }
+
+  /* Supabase: chargement */
   useEffect(()=>{
     (async ()=>{
       setSync({status:'loading',ts:null,error:null});
-      console.log("[Supabase] fetching state for slug:", DOC_SLUG);
-      const { data, error } = await supabase
-        .from("planner_state")
-        .select("data")
-        .eq("slug", DOC_SLUG)
-        .maybeSingle();
-
-      if(error){
-        console.error("[Supabase] select error:", error);
-        setSync({status:'error',ts:null,error:error.message});
-        return; /* on garde l’état local */
-      }
+      const { data, error } = await supabase.from("planner_state").select("data").eq("slug", DOC_SLUG).maybeSingle();
+      if(error){ setSync({status:'error',ts:null,error:error.message}); return; }
       if(data?.data){
-        console.log("[Supabase] state loaded.");
         const s=data.data;
         setCategories(Array.isArray(s.categories)? s.categories:[]);
         setTasks(Array.isArray(s.tasks)? s.tasks.map((t,i)=>({
           ...t,
-          row: typeof t.row === 'number' ? t.row : i,
+          row: typeof t.row === "number" ? t.row : i,
           subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
           expanded: !!t.expanded
         })) : []);
         setSync({status:'ok',ts:new Date().toISOString(),error:null});
       }else{
-        console.log("[Supabase] no row yet; inserting current local state.");
         await supabase.from("planner_state").insert({slug:DOC_SLUG,data:{categories,tasks},updated_at:new Date().toISOString()});
         setSync({status:'ok',ts:new Date().toISOString(),error:null});
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
-  /* Cache local */
+  /* Persistance locale + Supabase (debounce) */
   useEffect(()=>{ saveState({categories,tasks}); },[categories,tasks]);
-
-  /* Sauvegarde Supabase (debounce) */
   useEffect(()=>{
     const payload={categories,tasks};
     const t=setTimeout(async ()=>{
       setSync(s=>({...s,status:'saving'}));
-      const { error } = await supabase
-        .from("planner_state")
-        .upsert({slug:DOC_SLUG,data:payload,updated_at:new Date().toISOString()});
-      if(error){ console.error("[Supabase] upsert error:", error); setSync({status:'error',ts:null,error:error.message}); }
-      else { setSync({status:'ok',ts:new Date().toISOString(),error:null}); }
+      const { error } = await supabase.from("planner_state").upsert({slug:DOC_SLUG,data:payload,updated_at:new Date().toISOString()});
+      if(error) setSync({status:'error',ts:null,error:error.message});
+      else     setSync({status:'ok',ts:new Date().toISOString(),error:null});
     },600);
     return ()=>clearTimeout(t);
   },[categories,tasks]);
 
-  useEffect(()=>{
-    function onKey(e){ if(e.key==='Escape') setPanelOpen(false); }
-    if(panelOpen) window.addEventListener('keydown',onKey);
-    return ()=>window.removeEventListener('keydown',onKey);
-  },[panelOpen]);
-
-  const [newTask,setNewTask]=useState({ title:"", startISO:toISODate(TIMELINE_START), endISO:toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7)), range:`${toISODate(TIMELINE_START)} → ${toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7))}`, color:"#2563eb", categoryId:"", newCategoryName:"" });
-
+  /* Helpers */
   function weekIndexOf(date){ const s=startOfWeek(clampDate(date,TIMELINE_START,TIMELINE_END)); const idx=Math.round((s.getTime()-TIMELINE_START.getTime())/(MS_DAY*7)); return Math.max(0,Math.min(weeks.length-1,idx)); }
   function taskToGrid(task){ const start=new Date(task.startISO); const end=new Date(task.endISO); const startIdx=weekIndexOf(start); const endIdx=weekIndexOf(end); const span=Math.max(1,endIdx-startIdx+1); return {startIdx,span}; }
+
+  const enabledCategoryIds = useMemo(()=> new Set(categories.filter(c=>c.enabled!==false).map(c=>c.id)),[categories]);
+
+  /* APLAT pour affichage principal (insère les sous-tâches si expanded) */
+  const tasksToShow = useMemo(()=>{
+    const filtered = !categories.length
+      ? tasks
+      : tasks.filter(t=>!t.categoryId || enabledCategoryIds.has(t.categoryId));
+
+    const sorted = filtered.slice().sort((a,b)=> (a.row??0) - (b.row??0));
+
+    const res=[]; let offset=0;
+    for(const t of sorted){
+      const baseRow=(t.row??0)+offset;
+      res.push({...t,row:baseRow});
+      if(t.expanded && Array.isArray(t.subtasks)){
+        t.subtasks.forEach((childId,idx)=>{
+          const child = tasks.find(x=>x.id===childId);
+          if(child){
+            res.push({...child,row:baseRow+idx+1,parentId:t.id}); // clone visuel
+          }
+        });
+        offset += t.subtasks.length;
+      }
+    }
+    return res;
+  },[tasks,categories,enabledCategoryIds]);
+
+  /* CRUD catégories/tâches */
+  function getOrCreateCategoryByName(name,colorOverride){
+    let c=categories.find(x=>x.name===name); if(c) return c;
+    const palette=["#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9","#ef4444","#22c55e","#f59e0b","#64748b","#d946ef","#14b8a6","#a16207"];
+    const color=colorOverride || palette[categories.length%palette.length];
+    c={ id:`c-${Date.now()}-${Math.random().toString(36).slice(2,6)}`, name, color, enabled:true };
+    setCategories(prev=>[...prev,c]); return c;
+  }
+  const [newTask,setNewTask]=useState({
+    title:"",
+    startISO:toISODate(TIMELINE_START),
+    endISO:toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7)),
+    range:`${toISODate(TIMELINE_START)} → ${toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7))}`,
+    color:"#2563eb",
+    categoryId:"",
+    newCategoryName:""
+  });
   function parseDateRangeFromText(text){
     if(typeof text!=="string") return null; const raw=text.trim(); if(!raw) return null;
     let sep="→", idx=raw.indexOf("→"); if(idx<0){ for(const c of [" — "," – "," to "," au "," -> "," - "]){ const j=raw.indexOf(c); if(j>=0){ sep=c; idx=j; break; } } }
     if(idx<0) return null; const a=raw.slice(0,idx).trim(); const b=raw.slice(idx+sep.length).trim();
     const isISO=x=>x && x.length===10 && x[4]==='-' && x[7]==='-' && !isNaN(Date.parse(x));
-    if(!isISO(a)||!isISO(b)) return null; const s=clampDate(new Date(a),TIMELINE_START,TIMELINE_END); const e=clampDate(new Date(b),TIMELINE_START,TIMELINE_END);
+    if(!isISO(a)||!isISO(b)) return null;
+    const s=clampDate(new Date(a),TIMELINE_START,TIMELINE_END); const e=clampDate(new Date(b),TIMELINE_START,TIMELINE_END);
     return { startISO:toISODate(s), endISO:toISODate(e) };
-  }
-  function getOrCreateCategoryByName(name,colorOverride){
-    let c=categories.find(x=>x.name===name); if(c) return c;
-    const color=colorOverride || PALETTE[categories.length%PALETTE.length];
-    c={ id:`c-${Date.now()}-${Math.random().toString(36).slice(2,6)}`, name, color, enabled:true };
-    setCategories(prev=>[...prev,c]); return c;
   }
   function addTask(e){
     e.preventDefault();
@@ -226,56 +233,80 @@ function PlannerApp(){
     if(s>eDate){ alert("La date de début doit précéder la date de fin."); return; }
     let chosenCat=categories.find(c=>c.id===newTask.categoryId);
     if(!chosenCat && newTask.newCategoryName.trim()){
-      const existingByName=categories.find(c=>c.name.toLowerCase()===newTask.newCategoryName.trim().toLowerCase());
-      if(existingByName) chosenCat=existingByName; else chosenCat=getOrCreateCategoryByName(newTask.newCategoryName.trim(),newTask.color);
+      const existing=categories.find(c=>c.name.toLowerCase()===newTask.newCategoryName.trim().toLowerCase());
+      chosenCat = existing || getOrCreateCategoryByName(newTask.newCategoryName.trim(),newTask.color);
     }
     const color=chosenCat?chosenCat.color:newTask.color;
-    const t={ id:`t-${Date.now()}`, title:newTask.title || (chosenCat?chosenCat.name:"Sans titre"), startISO:toISODate(clampDate(s,TIMELINE_START,TIMELINE_END)), endISO:toISODate(clampDate(eDate,TIMELINE_START,TIMELINE_END)), color, categoryId:chosenCat?.id, actions:[], sourceLabel:null, row:tasks.length, notes:[], subtasks:[], expanded:false };
+    const t={ id:`t-${Date.now()}`, title:newTask.title || (chosenCat?chosenCat.name:"Sans titre"),
+      startISO:toISODate(clampDate(s,TIMELINE_START,TIMELINE_END)),
+      endISO:toISODate(clampDate(eDate,TIMELINE_START,TIMELINE_END)),
+      color, categoryId:chosenCat?.id, row:tasks.length, notes:[], subtasks:[], expanded:false };
     setTasks(prev=>[...prev,t]);
   }
-  function removeTask(id){ setTasks(prev=>{ const removed=prev.find(t=>t.id===id); const next=prev.filter(t=>t.id!==id); if(removed?.categoryId){ const stillUsed=next.some(t=>t.categoryId===removed.categoryId); if(!stillUsed) setCategories(cprev=>cprev.filter(c=>c.id!==removed.categoryId)); } return next; }); }
-  function removeCategory(id){ if(!categories.find(c=>c.id===id)) return; setTasks(prev=>prev.filter(t=>t.categoryId!==id)); setCategories(prev=>prev.filter(c=>c.id!==id)); }
-  function toggleCategory(id){ setCategories(prev=>prev.map(c=> c.id===id ? {...c,enabled:!(c.enabled!==false)} : c)); }
-  function updateCategoryColor(id,newColor){ setCategories(prev=>prev.map(c=> c.id===id ? {...c,color:newColor} : c)); setTasks(prev=>prev.map(t=> t.categoryId===id ? {...t,color:newColor} : t)); }
-  function resetAll(){ try{ localStorage.removeItem(LS_KEY);}catch{} setPanelOpen(false); setCategories([]); setTasks([]); setNewTask({ title:"", startISO:toISODate(TIMELINE_START), endISO:toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7)), range:`${toISODate(TIMELINE_START)} → ${toISODate(new Date(TIMELINE_START.getTime()+MS_DAY*7))}`, color:"#2563eb", categoryId:"", newCategoryName:""}); }
+  function removeTask(id){ setTasks(prev=>prev.filter(t=>t.id!==id)); }
+  function removeCategory(id){ setTasks(prev=>prev.filter(t=>t.categoryId!==id)); setCategories(prev=>prev.filter(c=>c.id!==id)); }
+  function toggleCategory(id){ setCategories(prev=>prev.map(c=> c.id===id?{...c,enabled:!(c.enabled!==false)}:c)); }
+  function updateCategoryColor(id,newColor){ setCategories(prev=>prev.map(c=> c.id===id?{...c,color:newColor}:c)); setTasks(prev=>prev.map(t=> t.categoryId===id?{...t,color:newColor}:t)); }
+  function resetAll(){ try{localStorage.removeItem(LS_KEY);}catch{} setPanelOpen(false); setCategories([]); setTasks([]); }
 
-  const enabledCategoryIds = useMemo(()=> new Set(categories.filter(c=>c.enabled!==false).map(c=>c.id)),[categories]);
-  const tasksToShow = useMemo(()=>{
-    const filtered = !categories.length ? tasks : tasks.filter(t=>!t.categoryId || enabledCategoryIds.has(t.categoryId));
-    const sorted = filtered.slice().sort((a,b)=> (a.row??0) - (b.row??0));
-    const result=[];
-    let offset=0;
-    for(const t of sorted){
-      const baseRow=(t.row??0)+offset;
-      result.push({...t,row:baseRow});
-      if(t.expanded && Array.isArray(t.subtasks)){
-        t.subtasks.forEach((st,idx)=>{
-          result.push({...st,row:baseRow+idx+1,parentId:t.id});
-        });
-        offset += t.subtasks.length;
-      }
-    }
-    return result;
-  },[tasks,categories,enabledCategoryIds]);
+  function changeRow(id,delta){ setTasks(prev=> prev.map(t=> t.id===id ? {...t, row:Math.max(0,(t.row??0)+delta)} : t)); }
+  function toggleExpanded(id){ setTasks(prev=> prev.map(t=> t.id===id ? {...t, expanded: !t.expanded} : t)); }
 
-  const colWidthPx = 44;
-  const gridCols = `repeat(${weeks.length}, ${colWidthPx}px)`;
-  const gridStyle = { display:'grid', gridTemplateColumns:gridCols };
+  /* Sous-tâches (stockées comme IDs) */
+  function addSubtaskAt(parentId, childId, atIndex=null){
+    if(parentId===childId) return;
+    setTasks(prev=> prev.map(t=>{
+      if(t.id!==parentId) return t;
+      const cur = Array.isArray(t.subtasks)? [...t.subtasks] : [];
+      if(cur.includes(childId)) return {...t, expanded:true};
+      const idx = (atIndex==null) ? cur.length : Math.max(0, Math.min(atIndex, cur.length));
+      cur.splice(idx, 0, childId);
+      return {...t, subtasks:cur, expanded:true};
+    }));
+  }
+  function removeSubtask(parentId, childId){
+    setTasks(prev=> prev.map(t=> t.id===parentId ? {...t, subtasks:(t.subtasks||[]).filter(id=>id!==childId)} : t));
+  }
+  function moveSubtask(parentId, childId, dir){
+    setTasks(prev=> prev.map(t=>{
+      if(t.id!==parentId) return t;
+      const cur=[...(t.subtasks||[])];
+      const i=cur.indexOf(childId); if(i<0) return t;
+      const j=Math.max(0, Math.min(cur.length-1, i+(dir<0?-1:1)));
+      [cur[i],cur[j]]=[cur[j],cur[i]];
+      return {...t, subtasks:cur};
+    }));
+  }
 
+  /* Drag & Drop principal (déplacement/résize) */
   const [drag,setDrag]=useState(null);
   useEffect(()=>{
     if(!drag) return;
-    function onMove(e){ setDrag(d => d ? {...d, dx:e.clientX - d.startX, dy:e.clientY - d.startY} : d); }
+    function onMove(e){ setDrag(d => d ? {...d, dx:e.clientX - d.startX, dy:e.clientY - (d.startY||0)} : d); }
     function onUp(){
       setTasks(prev=>{
         const d=drag; if(!d) return prev;
         const idx=prev.findIndex(t=>t.id===d.taskId); if(idx<0) return prev;
-        const t=prev[idx]; const { span }=taskToGrid(t); const deltaWeeks=Math.round((d.dx||0)/colWidthPx); const deltaRows=Math.round((d.dy||0)/ROW_H);
-        if(deltaWeeks===0 && deltaRows===0) return prev.slice();
-        if(d.type==='move'){ const ns=addWeeksISO(t.startISO,deltaWeeks,TIMELINE_START,TIMELINE_END); const ne=addWeeksISO(t.endISO,deltaWeeks,TIMELINE_START,TIMELINE_END); const newRow=Math.max(0,(t.row??0)+deltaRows); const updated={...t,startISO:ns,endISO:ne,row:newRow}; const copy=prev.slice(); copy[idx]=updated; return copy; }
-        if(d.type==='right'){ const ne=addWeeksISO(t.endISO,deltaWeeks,TIMELINE_START,TIMELINE_END); const newT=new Date(ne); const sT=startOfWeek(new Date(t.startISO)); const eT=startOfWeek(newT); const newSpan=Math.max(1,Math.round((eT-sT)/(MS_DAY*7))+1); const adjWeeks=newSpan-span; const neAdj=addWeeksISO(t.endISO,adjWeeks,TIMELINE_START,TIMELINE_END); const updated={...t,endISO:neAdj}; const copy=prev.slice(); copy[idx]=updated; return copy; }
-        if(d.type==='left'){ let ns=addWeeksISO(t.startISO,deltaWeeks,TIMELINE_START,TIMELINE_END); const sT=startOfWeek(new Date(ns)); const eT=startOfWeek(new Date(t.endISO)); let newSpan=Math.max(1,Math.round((eT-sT)/(MS_DAY*7))+1); if(newSpan<1) newSpan=1; const endIdx=weekIndexOf(new Date(t.endISO)); const startIdxNew=Math.max(0,endIdx-(newSpan-1)); const nsDate=new Date(TIMELINE_START.getTime()+startIdxNew*7*MS_DAY); ns=toISODate(clampDate(nsDate,TIMELINE_START,TIMELINE_END)); const updated={...t,startISO:ns}; const copy=prev.slice(); copy[idx]=updated; return copy; }
-        return prev;
+        const t=prev[idx];
+        const deltaWeeks=Math.round((d.dx||0)/colWidthPx);
+        const deltaRows = (d.type==='move') ? Math.round((d.dy||0)/ROW_H) : 0;
+        if(deltaWeeks===0 && deltaRows===0 && d.type!=='left' && d.type!=='right') return prev.slice();
+
+        const copy=prev.slice();
+        if(d.type==='move'){
+          const ns=addWeeksISO(t.startISO,deltaWeeks,TIMELINE_START,TIMELINE_END);
+          const ne=addWeeksISO(t.endISO,deltaWeeks,TIMELINE_START,TIMELINE_END);
+          copy[idx]={...t,startISO:ns,endISO:ne,row:Math.max(0,(t.row??0)+deltaRows)};
+        }
+        if(d.type==='right'){
+          const ne=addWeeksISO(t.endISO,deltaWeeks,TIMELINE_START,TIMELINE_END);
+          copy[idx]={...t,endISO:ne};
+        }
+        if(d.type==='left'){
+          const ns=addWeeksISO(t.startISO,deltaWeeks,TIMELINE_START,TIMELINE_END);
+          copy[idx]={...t,startISO:ns};
+        }
+        return copy;
       });
       setDrag(null);
     }
@@ -284,60 +315,32 @@ function PlannerApp(){
     return ()=>{ window.removeEventListener('pointermove',onMove); window.removeEventListener('pointerup',onUp); };
   },[drag]);
 
-  function changeRow(id,delta){ setTasks(prev=> prev.map(t=> t.id===id ? {...t, row:Math.max(0,(t.row??0)+delta)} : t)); }
-
-  function toggleExpanded(id){ setTasks(prev=> prev.map(t=> t.id===id ? {...t, expanded: !t.expanded} : t)); }
-
-  const [noteEditor,setNoteEditor]=useState({taskId:null,draft:""});
-  function openNotes(taskId){ setNoteEditor({taskId,draft:""}); }
-  function addNoteToTask(taskId,text){ const v=(text||"").trim(); if(!v) return; setTasks(prev=> prev.map(t=> t.id===taskId ? {...t, notes:[...(t.notes||[]), v]} : t)); setNoteEditor({taskId, draft:""}); }
-  function deleteNote(taskId,idx){ setTasks(prev=> prev.map(t=> t.id===taskId ? {...t, notes:(t.notes||[]).filter((_,i)=>i!==idx)} : t)); }
-
-  const testResults = useMemo(()=>{
-    const results = [];
-    const t1 = TIMELINE_START.getDay()===1 && TIMELINE_START.getDate()===1 && TIMELINE_START.getMonth()===8;
-    results.push({ name:"TIMELINE_START est lun 1 sept. 2025", pass:t1, details: toISODate(TIMELINE_START)});
-    const weeksCountOk = weeks.length>0 && weeks.length<60;
-    results.push({ name:"Nombre de semaines plausible", pass:weeksCountOk, details:String(weeks.length)});
-    const sumSpan = monthSegments.reduce((a,b)=>a+b.span,0);
-    results.push({ name:"Somme spans == nb semaines", pass: sumSpan===weeks.length, details: `${sumSpan} vs ${weeks.length}`});
-    const allEnabledByDefault = categories.every(c=> c.enabled !== false);
-    results.push({ name:"Catégories actives par défaut", pass: allEnabledByDefault, details: String(allEnabledByDefault)});
-    const w0 = weekIndexOf(TIMELINE_START)===0;
-    results.push({ name:"weekIndexOf(TIMELINE_START) == 0", pass:w0, details:String(w0)});
-    const spanOk = tasks.every(t=> { const g = taskToGrid(t); return g && g.span>=1; });
-    results.push({ name:"Span ≥ 1 pour toutes les tâches", pass: spanOk, details: String(spanOk)});
-    const noDupIso = weeks.every((w,i,a)=> i===0 || getISOWeek(w) !== getISOWeek(a[i-1]));
-    results.push({ name:"Semaines ISO sans doublon consécutif", pass: noDupIso, details: String(noDupIso) });
-    const hasDangling = (()=>{ const catIds = new Set(categories.map(c=>c.id)); return tasks.some(t=> t.categoryId && !catIds.has(t.categoryId)); })();
-    results.push({ name:"Pas de référence de catégorie orpheline", pass: !hasDangling, details: String(!hasDangling)});
-    results.push({ name:"resetAll() est une fonction", pass: typeof resetAll === 'function', details: typeof resetAll });
-    const hexOk = categories.every(c=> /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(String(c.color || "")));
-    results.push({ name:"Couleurs catégories au format hex", pass: hexOk, details: String(hexOk)});
-    const showCountOk = tasksToShow.filter(t=>!t.parentId).length <= tasks.length;
-    results.push({ name:"Filtre ≤ total", pass: showCountOk, details: `${tasksToShow.filter(t=>!t.parentId).length}/${tasks.length}`});
-    const taskColorsOk = tasks.every(t=> /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(String(t.color || "")));
-    results.push({ name:"Couleurs tâches au format hex", pass: taskColorsOk, details: String(taskColorsOk) });
-    const catColorMap = new Map(categories.map(c=>[c.id,c.color]));
-    const syncOk = tasks.every(t=> !t.categoryId || t.color === catColorMap.get(t.categoryId));
-    results.push({ name:"Tâches sync avec couleur catégorie", pass: syncOk, details: String(syncOk) });
-    const colsOk = weeks.length>0 && typeof gridCols === 'string';
-    results.push({ name:"Grille OK", pass: colsOk, details: gridCols});
-    const p = parseDateRangeFromText("2025-09-06 → 2025-09-22");
-    const parseOk = !!p && p.startISO === "2025-09-06" && p.endISO === "2025-09-22";
-    results.push({ name:"Parse plage date", pass: parseOk, details: p ? `${p.startISO}→${p.endISO}` : "null"});
-    const notesArrOk = tasks.every(t=> Array.isArray(t.notes || []));
-    results.push({ name:"Notes: tableau présent", pass: notesArrOk, details: String(notesArrOk)});
-    const subtasksArrOk = tasks.every(t=> Array.isArray(t.subtasks || []));
-    results.push({ name:"Sous-tâches: tableau présent", pass: subtasksArrOk, details: String(subtasksArrOk)});
-    const expandedBoolOk = tasks.every(t=> typeof t.expanded === 'boolean');
-    results.push({ name:"expanded est booléen", pass: expandedBoolOk, details: String(expandedBoolOk)});
-    return results;
-  },[weeks.length, monthSegments, categories, tasks, tasksToShow.length, gridCols]);
+  /* Drag depuis la bibliothèque → sous-frise */
+  useEffect(()=>{
+    if(!subEditor.drag) return;
+    function onMove(e){ setSubEditor(s=>({...s, drag:{...s.drag, x:e.clientX, y:e.clientY}})); }
+    function onUp(e){
+      const d=subEditor.drag;
+      const dropEl = dropRef.current;
+      if(d && dropEl){
+        const rect = dropEl.getBoundingClientRect();
+        if(d.x>=rect.left && d.x<=rect.right && d.y>=rect.top && d.y<=rect.bottom){
+          const relY = d.y - rect.top;
+          const rowIdx = Math.max(0, Math.floor(relY / ROW_H));
+          addSubtaskAt(subEditor.parentId, d.taskId, rowIdx);
+        }
+      }
+      setSubEditor(s=>({...s, drag:null}));
+    }
+    window.addEventListener('pointermove',onMove);
+    window.addEventListener('pointerup',onUp);
+    return ()=>{ window.removeEventListener('pointermove',onMove); window.removeEventListener('pointerup',onUp); };
+  },[subEditor.drag]);
 
   /* UI */
   return (
     <ErrorBoundary>
+      {/* Panneau latéral (options) */}
       {panelOpen && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/20" onClick={()=>setPanelOpen(false)} />
@@ -346,71 +349,166 @@ function PlannerApp(){
               <div className="font-medium">Planificateur</div>
               <div className="flex items-center gap-2">
                 <button onClick={()=>setShowTests(v=>!v)} className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">{showTests ? 'Tests: ON' : 'Tests: OFF'}</button>
-                <button onClick={()=>setPanelOpen(false)} className="rounded-full border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 hover:bg-slate-50" aria-label="Fermer">✕</button>
+                <button onClick={()=>setPanelOpen(false)} className="rounded-full border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 hover:bg-slate-50">✕</button>
               </div>
             </div>
-            <div className="p-4 space-y-4">
-              <div className="flex flex-col gap-2">
-                <button onClick={resetAll} className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 shadow-sm hover:bg-red-50">Réinitialiser tout</button>
-                <span className="text-xs rounded-full border px-2 py-1" style={{borderColor:'#cbd5e1', color: sync.status==='error' ? '#b91c1c' : '#334155', backgroundColor: sync.status==='saving' ? '#f1f5f9' : '#fff' }}>
-                  {sync.status==='loading' && 'Synchro…'}
-                  {sync.status==='saving'  && 'Enregistrement…'}
-                  {sync.status==='ok'      && (sync.ts ? `Synchro OK · ${new Date(sync.ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}` : 'Synchro OK')}
-                  {sync.status==='error'   && 'Erreur de synchro'}
-                </span>
-                <button onClick={()=>{ const data=JSON.stringify({categories,tasks}); navigator.clipboard.writeText(data).then(()=>alert('État copié.')).catch(()=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([data],{type:'application/json'})); a.download='planner-state.json'; a.click(); }); setPanelOpen(false); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">Exporter</button>
-                <button onClick={()=>{ const t=prompt('Collez le JSON :'); if(!t) return; try{ const s=JSON.parse(t); setCategories(Array.isArray(s.categories)?s.categories:[]); setTasks(Array.isArray(s.tasks)? s.tasks.map((t,i)=>({
-                  ...t,
-                  row: typeof t.row === 'number' ? t.row : i,
-                  subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
-                  expanded: !!t.expanded
-                })) : []);}catch{ alert('JSON invalide'); } setPanelOpen(false); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">Importer</button>
-                <button onClick={()=>{ const url=location.origin+location.pathname+location.search+'#s='+b64Encode(JSON.stringify({categories,tasks})); window.open(url,'_blank'); setPanelOpen(false); }} className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">Nouveau (→ transfère)</button>
-              </div>
-              <form onSubmit={addTask} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <h2 className="mb-2 text-sm font-medium text-slate-700">Ajouter une ligne (tâche)</h2>
-                <div className="grid grid-cols-1 gap-3">
-                  <label className="text-sm">Intitulé
-                    <input type="text" value={newTask.title} onChange={(e)=>setNewTask(s=>({...s,title:e.target.value}))} placeholder="Ex. Semaine de tournage" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+
+            <div className="p-4 space-y-3">
+              <button onClick={resetAll} className="rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50">Réinitialiser tout</button>
+              <span className="text-xs rounded-full border px-2 py-1 text-slate-700">Synchro: {sync.status}{sync.ts?` · ${new Date(sync.ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}`:''}</span>
+
+              <form onSubmit={addTask} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+                <h2 className="text-sm font-medium text-slate-700">Ajouter une ligne</h2>
+                <label className="text-sm block">Intitulé
+                  <input type="text" value={newTask.title} onChange={(e)=>setNewTask(s=>({...s,title:e.target.value}))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="text-sm block">Plage de dates
+                  <input type="text" value={newTask.range} onChange={(e)=>{ const v=e.target.value; setNewTask(s=>{ const p=parseDateRangeFromText(v); return p ? {...s,range:v,startISO:p.startISO,endISO:p.endISO} : {...s,range:v}; }); }} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="2025-09-06 → 2025-09-22" />
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="text-sm">Catégorie
+                    <select value={newTask.categoryId} onChange={(e)=>setNewTask(s=>({...s,categoryId:e.target.value}))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                      <option value="">— Aucune —</option>
+                      {categories.map(c=>(<option key={c.id} value={c.id}>{c.name}</option>))}
+                    </select>
                   </label>
-                  <label className="text-sm">Plage de dates
-                    <input type="text" value={newTask.range} onChange={(e)=>{ const v=e.target.value; setNewTask(s=>{ const p=parseDateRangeFromText(v); return p ? {...s,range:v,startISO:p.startISO,endISO:p.endISO} : {...s,range:v}; }); }} placeholder="2025-09-06 → 2025-09-22" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+                  <label className="text-sm">Couleur (si pas de catégorie)
+                    <input type="color" value={newTask.color} onChange={(e)=>setNewTask(s=>({...s,color:e.target.value}))} className="mt-1 h-10 w-full cursor-pointer rounded-lg border border-slate-300" />
                   </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="text-sm">Catégorie (couleur + nom)
-                      <select value={newTask.categoryId} onChange={(e)=>setNewTask(s=>({...s,categoryId:e.target.value}))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
-                        <option value="">— Aucune —</option>
-                        {categories.map(c=>(<option key={c.id} value={c.id}>{c.name}</option>))}
-                      </select>
-                    </label>
-                    <label className="text-sm">Couleur (si pas de catégorie)
-                      <input type="color" value={newTask.color} onChange={(e)=>setNewTask(s=>({...s,color:e.target.value}))} className="mt-1 h-10 w-full cursor-pointer rounded-lg border border-slate-300" title="Choisir une couleur" />
-                    </label>
-                  </div>
-                  <label className="text-sm">Dénomination (si nouvelle couleur)
-                    <input type="text" value={newTask.newCategoryName} onChange={(e)=>setNewTask(s=>({...s,newCategoryName:e.target.value}))} placeholder="Ex. Montage" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
-                  </label>
-                  <button type="submit" className="mt-1 inline-flex items-center justify-center rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">Ajouter la ligne</button>
                 </div>
+                <label className="text-sm block">Nom nouvelle catégorie
+                  <input type="text" value={newTask.newCategoryName} onChange={(e)=>setNewTask(s=>({...s,newCategoryName:e.target.value}))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                </label>
+                <button type="submit" className="w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">Ajouter</button>
               </form>
-              {showTests && (
-                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <h2 className="mb-2 text-sm font-medium text-slate-700">Tests</h2>
-                  <ul className="space-y-1 text-sm">
-                    {testResults.map((t,i)=>(
-                      <li key={i} className="flex items-center gap-3">
-                        <span className={(t.pass?"bg-green-100 text-green-700":"bg-red-100 text-red-700")+" inline-flex h-5 min-w-[20px] items-center justify-center rounded px-1 text-xs font-semibold"}>{t.pass?"OK":"KO"}</span>
-                        <span>{t.name}</span>
-                        <span className="ml-auto text-xs text-slate-500">{t.details}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </div>
           </aside>
         </div>
       )}
+
+      {/* Modal éditeur de sous-frise */}
+      {subEditor.parentId && (
+        <div className="fixed inset-0 z-40">
+          <div className="absolute inset-0 bg-black/40" onClick={closeSubEditor}></div>
+          <div className="absolute left-1/2 top-1/2 w-[min(1200px,95vw)] max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl bg-white shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3">
+              {(() => {
+                const p = tasks.find(t=>t.id===subEditor.parentId);
+                return (
+                  <>
+                    <div className="h-3 w-3 rounded-full" style={{backgroundColor:p?.color || '#334155'}}></div>
+                    <div className="font-medium truncate">{p?.title || "Tâche"}</div>
+                    <button onClick={()=>toggleExpanded(subEditor.parentId)} className="ml-2 rounded border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50">
+                      {p?.expanded ? "Masquer dans la frise principale" : "Afficher dans la frise principale"}
+                    </button>
+                    <button onClick={()=>setTasks(prev=>prev.map(t=> t.id===subEditor.parentId?{...t,subtasks:[]}:t))} className="ml-2 rounded border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50">Vider</button>
+                    <div className="ml-auto"></div>
+                    <button onClick={closeSubEditor} className="rounded-full border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 hover:bg-slate-50">✕</button>
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* Bibliothèque + sous-frise */}
+            <div className="grid grid-rows-[auto,1fr] gap-3 p-3">
+              {/* Bibliothèque (toutes les autres tâches → draggable) */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {tasks.filter(t=>t.id!==subEditor.parentId).map(t=>(
+                  <button
+                    key={t.id}
+                    onPointerDown={(e)=> setSubEditor(s=>({...s, drag:{taskId:t.id, x:e.clientX, y:e.clientY}}))}
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-2 py-1 text-xs shadow-sm"
+                    title="Glissez dans la sous-frise pour l'ajouter"
+                  >
+                    <span className="h-2 w-2 rounded-full" style={{backgroundColor:t.color}}></span>
+                    <span className="truncate max-w-[220px]">{t.title}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Sous-frise du parent */}
+              <div className="overflow-auto rounded-xl border border-slate-200">
+                <div style={{width: totalWidthPx}}>
+                  {/* En-tête semaines (sticky) */}
+                  <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90">
+                    <div style={{display:'grid', gridTemplateColumns:`repeat(${weeks.length}, ${colWidthPx}px)`}}>
+                      {monthSegments.map((m,i)=>(
+                        <div key={i} className="flex items-center justify-center border-r border-slate-100 px-2 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600" style={{gridColumn:`span ${m.span} / span ${m.span}`}}>{m.label}</div>
+                      ))}
+                    </div>
+                    <div className="border-t border-slate-100" style={{display:'grid', gridTemplateColumns:`repeat(${weeks.length}, ${colWidthPx}px)`}}>
+                      {weeks.map((w,i)=>(
+                        <div key={i} className="flex items-center justify-center border-r border-slate-100 px-1 py-1 text-[10px] text-slate-500" title={`${fmtDM.format(w)} → ${fmtDM.format(new Date(w.getTime()+MS_DAY*6))}`}>
+                          S{String(getISOWeek(w)).padStart(2,'0')}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Corps (zone droppable) */}
+                  <div ref={dropRef}>
+                    {(() => {
+                      const parent = tasks.find(t=>t.id===subEditor.parentId);
+                      const list = (parent?.subtasks || []);
+                      const rows = Math.max(1, list.length);
+                      return Array.from({length:rows},(_,row)=>row).map(row=>{
+                        return (
+                          <div key={row} className="relative border-b border-slate-100" style={{height:ROW_H}}>
+                            {/* grille */}
+                            <div style={{display:'grid', gridTemplateColumns:`repeat(${weeks.length}, ${colWidthPx}px)`, height:'100%'}}>
+                              {weeks.map((_,i)=><div key={i} className={(i%2===0?"border-slate-50":"border-slate-100")+" border-r"} />)}
+                            </div>
+                            {/* barre (si existe) */}
+                            {list[row] && (()=> {
+                              const child = tasks.find(t=>t.id===list[row]);
+                              if(!child) return null;
+                              const {startIdx,span} = taskToGrid(child);
+                              const leftPx = startIdx * colWidthPx;
+                              const widthPx= span     * colWidthPx;
+                              const isNarrow = widthPx < 64;
+                              return (
+                                <div className="absolute inset-x-0" style={{top:0,height:ROW_H}}>
+                                  <div className="absolute rounded-lg shadow-sm flex items-center gap-1 pl-1 pr-2 text-[11px] text-slate-700"
+                                       style={{left:leftPx,width:widthPx, top:ROW_GAP/2, height:ROW_H-ROW_GAP, backgroundColor:child.color}}>
+                                    {!isNarrow && <span className="inline-block h-2 w-2 rounded" style={{backgroundColor:child.color}}/>}
+                                    <span className="truncate min-w-0 font-medium">{child.title}</span>
+                                    <div className="ml-auto flex items-center gap-1">
+                                      <button onClick={()=>moveSubtask(subEditor.parentId, child.id, -1)} className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" title="Monter">↑</button>
+                                      <button onClick={()=>moveSubtask(subEditor.parentId, child.id, +1)} className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" title="Descendre">↓</button>
+                                      <button onClick={()=>removeSubtask(subEditor.parentId, child.id)} className="rounded border border-red-200 bg-white px-1 text-[10px] text-red-700 hover:bg-red-50" title="Retirer">–</button>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Fantôme de drag (depuis la bibliothèque) */}
+            {subEditor.drag && (
+              <div className="pointer-events-none fixed z-50 rounded-full border border-slate-300 bg-white px-2 py-1 text-xs shadow"
+                   style={{left:subEditor.drag.x+8, top:subEditor.drag.y+8}}>
+                {(() => {
+                  const t = tasks.find(x=>x.id===subEditor.drag.taskId);
+                  return (<span className="inline-flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full" style={{background:t?.color||'#64748b'}}></span>
+                    {t?.title || '…'}
+                  </span>);
+                })()}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Page principale */}
       <div className="min-h-screen w-full bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
         <div className="mx-auto max-w-[1400px] px-4 py-4">
           <div className="mb-4 flex items-center justify-between">
@@ -437,106 +535,96 @@ function PlannerApp(){
             </div>
           )}
 
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm h-[82vh] max-h-[82vh] flex flex-col min-h-0">
-            {/* En-tête */}
-            <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90">
-              <div style={{display:'grid', gridTemplateColumns:`repeat(${weeks.length}, ${colWidthPx}px)`}}>
-                {monthSegments.map((m,i)=>(
-                  <div key={`${m.label}-${i}`} className="flex items-center justify-center border-r border-slate-100 px-2 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600" style={{gridColumn:`span ${m.span} / span ${m.span}`}}>{m.label}</div>
-                ))}
-              </div>
-              <div className="border-t border-slate-100" style={{display:'grid', gridTemplateColumns:`repeat(${weeks.length}, ${colWidthPx}px)`}}>
-                {weeks.map((w,i)=>(
-                  <div key={i} className="flex items-center justify-center border-r border-slate-100 px-1 py-1 text-[10px] text-slate-500" title={`${fmtDM.format(w)} → ${fmtDM.format(new Date(w.getTime()+MS_DAY*6))}`}>
-                    S{String(getISOWeek(w)).padStart(2,'0')}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Corps */}
-            <div className="min-h-0 flex-1 overflow-auto" style={{display:'grid', gridTemplateColumns:`repeat(${weeks.length}, ${colWidthPx}px)`}}>
-              {Array.from({length: Math.max(0,...tasksToShow.map(t=>typeof t.row==='number'?t.row:0))+1}, (_,row)=>row).map(row=>(
-                <div key={row} className="relative border-b border-slate-100" style={{gridColumn:`1 / -1`}}>
+          {/* Carte agenda */}
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm h-[82vh] max-h-[82vh] min-h-0">
+            <div className="h-full overflow-auto">
+              <div style={{ width: totalWidthPx }}>
+                {/* En-tête (sticky) */}
+                <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90">
                   <div style={{display:'grid', gridTemplateColumns:`repeat(${weeks.length}, ${colWidthPx}px)`}}>
-                    {weeks.map((_,i)=>(
-                      <div
-                        key={i}
-                        className={(i%2===0?"border-slate-50":"border-slate-100")+" border-r"}
-                        style={{ height: ROW_H }}
-                      />
+                    {monthSegments.map((m,i)=>(
+                      <div key={i} className="flex items-center justify-center border-r border-slate-100 px-2 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600" style={{gridColumn:`span ${m.span} / span ${m.span}`}}>{m.label}</div>
                     ))}
                   </div>
-                  {tasksToShow.filter(t=>(t.row??0)===row).map(t=>{
-                    const {startIdx,span}=taskToGrid(t);
-                    const leftPx=startIdx*colWidthPx; const widthPx=span*colWidthPx;
-                    const isDragging=drag && drag.taskId===t.id;
-                    let leftAdj=leftPx, widthAdj=widthPx, topAdj=ROW_GAP/2;
-                    if(isDragging){ if(drag.type==='move'){ leftAdj=leftPx+(drag.dx||0); topAdj=ROW_GAP/2+(drag.dy||0); } if(drag.type==='right') widthAdj=Math.max(colWidthPx,widthPx+(drag.dx||0)); if(drag.type==='left'){ const w=Math.max(colWidthPx,widthPx-(drag.dx||0)); leftAdj=leftPx+(drag.dx||0); widthAdj=w; } }
-                    const isSub = !!t.parentId;
-                    const isNarrow=widthAdj<64; const noteCount=Array.isArray(t.notes)?t.notes.length:0;
-                    const charWidth=0.6;
-                    const fontPx=Math.min(11, Math.max(8, Math.floor(widthAdj/(charWidth*Math.max(1, t.title.length)))));
-                    return (
-                      <div key={t.id} className="pointer-events-none absolute left-0 top-0 w-full" style={{ height: ROW_H }}>
-                        <div
-                          className="pointer-events-auto absolute select-none rounded-lg shadow-sm group"
-                          onDoubleClick={()=>toggleExpanded(t.parentId || t.id)}
-                          style={{
-                            left: leftAdj,
-                            width: widthAdj,
-                            top: topAdj,
-                            height: ROW_H - ROW_GAP,
-                            backgroundColor: t.color
-                          }}
-                        >
-                          {noteCount>0 && !isSub && <span className="absolute -top-1 -left-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border border-white bg-slate-900 px-1 text-[10px] font-semibold text-white">{noteCount}</span>}
-                          <div className={`flex h-full items-center gap-1 ${isSub? 'pl-4':'pl-1'} pr-2 text-slate-700`} style={{fontSize:fontPx}}>
-                            {!isNarrow && <span className="inline-block h-2 w-2 rounded" style={{backgroundColor:t.color}}/>}
-                            <span className="min-w-0 font-medium whitespace-nowrap" title={`${t.title} — ${t.startISO} → ${t.endISO}`}>{t.title}</span>
-                            {!isSub && <div className="ml-auto hidden items-center gap-1 group-hover:flex">
-                              <button onClick={()=>openNotes(t.id)} className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" title="Notes">💬</button>
-                              <button onClick={()=>removeTask(t.id)} className="rounded border border-red-200 bg-white px-1 text-[10px] text-red-700 hover:bg-red-50" title="Supprimer">🗑</button>
-                            </div>}
-                          </div>
-                          {!isSub && <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'move',startX:e.clientX,startY:e.clientY,dx:0,dy:0})} className="absolute inset-y-0 left-2 w-8 cursor-grab" title="Déplacer" />}
-                          {!isSub && <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'left',startX:e.clientX,startY:e.clientY,dx:0,dy:0})}  className="absolute inset-y-0 left-0 w-2 cursor-w-resize" title="Ajuster début" />}
-                          {!isSub && <div onPointerDown={(e)=>setDrag({taskId:t.id,type:'right',startX:e.clientX,startY:e.clientY,dx:0,dy:0})} className="absolute inset-y-0 right-0 w-2 cursor-e-resize" title="Ajuster fin" />}
-                          {noteEditor.taskId===t.id && !isSub && (
-                            <div className="absolute right-0 top-[110%] z-20 w-[280px] rounded-xl border border-slate-200 bg-white p-3 text-[12px] shadow-lg">
-                              <div className="mb-2 flex items-center justify-between"><div className="font-medium">Notes</div><button className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" onClick={()=>setNoteEditor({taskId:null,draft:""})}>✕</button></div>
-                              <div className="max-h-40 space-y-2 overflow-y-auto">
-                                {(t.notes||[]).length===0 && <div className="text-slate-500">Aucune note</div>}
-                                {(t.notes||[]).map((n,idx)=>(
-                                  <div key={idx} className="flex items-start gap-2">
-                                    <div className="mt-[2px]">•</div>
-                                    <div className="min-w-0 flex-1 break-words">{n}</div>
-                                    <button className="rounded border border-red-200 bg-white px-1 text-[10px] text-red-700 hover:bg-red-50" onClick={()=>deleteNote(t.id,idx)}>🗑</button>
-                                  </div>
-                                ))}
-                              </div>
-                              <div className="mt-2 flex items-center gap-2">
-                                <input value={noteEditor.draft} onChange={(e)=>setNoteEditor(s=>({...s,draft:e.target.value}))} placeholder="Ajouter une note" className="flex-1 rounded-lg border border-slate-300 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-slate-400" />
-                                <button className="rounded-lg bg-slate-900 px-2 py-1 text-xs font-medium text-white hover:bg-slate-800" onClick={()=>addNoteToTask(t.id,noteEditor.draft)}>Ajouter</button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                  <div className="border-t border-slate-100" style={{display:'grid', gridTemplateColumns:`repeat(${weeks.length}, ${colWidthPx}px)`}}>
+                    {weeks.map((w,i)=>(
+                      <div key={i} className="flex items-center justify-center border-r border-slate-100 px-1 py-1 text-[10px] text-slate-500" title={`${fmtDM.format(w)} → ${fmtDM.format(new Date(w.getTime()+MS_DAY*6))}`}>
+                        S{String(getISOWeek(w)).padStart(2,'0')}
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
-              ))}
+
+                {/* Corps */}
+                {Array.from({length: Math.max(1, ...tasksToShow.map(t=>+t.row||0))+1}, (_,row)=>row).map(row=>(
+                  <div key={row} className="relative border-b border-slate-100" style={{height:ROW_H}}>
+                    {/* fond grille */}
+                    <div style={{display:'grid', gridTemplateColumns:`repeat(${weeks.length}, ${colWidthPx}px)`, height:'100%'}}>
+                      {weeks.map((_,i)=><div key={i} className={(i%2===0?"border-slate-50":"border-slate-100")+" border-r"} />)}
+                    </div>
+
+                    {/* barres */}
+                    {tasksToShow.filter(t=> (t.row??0)===row).map(t=>{
+                      const {startIdx,span}=taskToGrid(t);
+                      const leftPx=startIdx*colWidthPx; const widthPx=span*colWidthPx;
+                      const isDragging = drag && drag.taskId===t.id;
+                      let leftAdj=leftPx, widthAdj=widthPx, topAdj=ROW_GAP/2;
+                      if(isDragging){
+                        if(drag.type==='move'){ leftAdj=leftPx+(drag.dx||0); topAdj=ROW_GAP/2+(drag.dy||0); }
+                        if(drag.type==='right'){ widthAdj=Math.max(colWidthPx, widthPx+(drag.dx||0)); }
+                        if(drag.type==='left'){ const w=Math.max(colWidthPx, widthPx-(drag.dx||0)); leftAdj=leftPx+(drag.dx||0); widthAdj=w; }
+                      }
+                      const isChild = !!t.parentId;
+                      const isNarrow = widthAdj<64;
+
+                      return (
+                        <div key={t.id} className="absolute inset-x-0" style={{top:0,height:ROW_H}}>
+                          <div
+                            className={"group absolute select-none rounded-lg shadow-sm "+(isChild?"":"cursor-pointer")}
+                            onClick={()=>!isChild && openSubEditor(t.id)}
+                            style={{left:leftAdj,width:widthAdj, top:topAdj, height:ROW_H-ROW_GAP, backgroundColor:t.color}}
+                            title={!isChild ? "Cliquer pour ouvrir la sous-frise" : ""}
+                          >
+                            {/* contenu */}
+                            <div className={"flex h-full items-center gap-1 "+(isChild?'pl-4':'pl-1')+" pr-2 text-[11px] text-slate-700"}>
+                              {!isNarrow && <span className="inline-block h-2 w-2 rounded" style={{backgroundColor:t.color}}/>}
+                              <span className="truncate min-w-0 font-medium" title={`${t.title} — ${t.startISO} → ${t.endISO}`}>{t.title}</span>
+                              {!isChild && (
+                                <div className="ml-auto hidden items-center gap-1 group-hover:flex">
+                                  <button onClick={(e)=>{e.stopPropagation(); changeRow(t.id,-1);}} className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" title="Monter">↑</button>
+                                  <button onClick={(e)=>{e.stopPropagation(); changeRow(t.id,+1);}} className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" title="Descendre">↓</button>
+                                  <button onClick={(e)=>{e.stopPropagation(); toggleExpanded(t.id);}} className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50" title={t.expanded?"Masquer sous-tâches":"Afficher sous-tâches"}>{t.expanded?"–":"+"}</button>
+                                  <button onClick={(e)=>{e.stopPropagation(); removeTask(t.id);}} className="rounded border border-red-200 bg-white px-1 text-[10px] text-red-700 hover:bg-red-50" title="Supprimer">🗑</button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* zones drag resize/déplacement */}
+                            {!isChild && (
+                              <>
+                                <div onPointerDown={(e)=>{e.stopPropagation(); setDrag({taskId:t.id,type:'move',startX:e.clientX,startY:e.clientY,dx:0,dy:0});}} className="absolute inset-y-0 left-2 w-8 cursor-grab" title="Déplacer"></div>
+                                <div onPointerDown={(e)=>{e.stopPropagation(); setDrag({taskId:t.id,type:'left',startX:e.clientX,dx:0});}} className="absolute inset-y-0 left-0 w-2 cursor-w-resize" title="Ajuster début"></div>
+                                <div onPointerDown={(e)=>{e.stopPropagation(); setDrag({taskId:t.id,type:'right',startX:e.clientX,dx:0});}} className="absolute inset-y-0 right-0 w-2 cursor-e-resize" title="Ajuster fin"></div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
+          {/* /carte */}
         </div>
       </div>
     </ErrorBoundary>
   );
 }
 
-// Monte l'application React dans la page
 ReactDOM.createRoot(document.getElementById('root')).render(<PlannerApp />);
     </script>
   </body>
 </html>
+```
