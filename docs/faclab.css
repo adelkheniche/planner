@@ -1,0 +1,77 @@
+:root {
+  --color-white: #FFFFFF;
+  --color-black: #000000;
+  --color-gray-light: #CBC7C5;
+  --color-text: #242621;
+  --color-border: #CBC7C5;
+
+  --color-bg: #FFFFFF;
+  --color-bg-alt: rgba(36, 38, 33, 0.02);
+
+  --color-red: #DA2C1D;
+  --color-red-dark: #C4271A;
+  --color-red-light: #E33B2C;
+
+  --color-blue: #0509A3;
+  --color-blue-dark: #040892;
+
+  --color-violet: #8000C7;
+  --color-violet-dark: #7300B3;
+
+  --color-green: #5BC54A;
+  --color-green-dark: #4CB83B;
+
+  --color-yellow: #F6E650;
+  --color-yellow-dark: #F4E130;
+
+  --color-pink: #EE7FC6;
+  --color-pink-dark: #E95EB7;
+
+  --focus-ring: #0509A3;
+}
+
+/* CTA primaire */
+.button--primary {
+  background: var(--color-red);
+  color: var(--color-white);
+}
+.button--primary:hover,
+.button--primary:focus {
+  background: var(--color-red-dark);
+}
+.button--primary:active {
+  background: var(--color-red-light);
+}
+.button--primary:focus {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Liens */
+a {
+  color: var(--color-blue);
+}
+a:hover,
+a:focus {
+  color: var(--color-blue-dark);
+  text-decoration: underline;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Badges / rubans */
+.badge--info       { background: var(--color-blue);   color: var(--color-white); }
+.badge--creation   { background: var(--color-violet); color: var(--color-white); }
+.badge--community  { background: var(--color-green);  color: var(--color-text); }
+.badge--alert      { background: var(--color-yellow); color: var(--color-text); }
+.badge--highlight  { background: var(--color-pink);   color: var(--color-text); }
+
+/* Cards */
+.card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+.card--alt {
+  background: var(--color-bg-alt);
+}
