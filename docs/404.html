@@ -19,6 +19,10 @@
     <meta name="color-scheme" content="light" />
     <style>
       html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+      .task-bar { font-size: var(--task-font,11px); }
+      .task-bar.is-dragging { opacity:0.9; z-index:50; cursor:grabbing; }
+      .task-bar.hide-bullet .bullet { display:none; }
+      body.is-dragging { cursor:grabbing; }
     </style>
   </head>
   <body>
@@ -54,6 +58,7 @@ const ROW_H = 26;                     // hauteur d’une ligne (px)
 const ROW_GAP = 2;                    // petit padding vertical dans une ligne
 const SUB_ROW_H = 22;                 // hauteur d'une voie dans la sous-frise
 const SUB_ROW_GAP = 2;                // marge interne des sous-barres
+const BULLET_HIDE_W = 48;
 const fmtMonthYear = new Intl.DateTimeFormat("fr-FR",{ month:"long", year:"numeric" });
 const fmtDM = new Intl.DateTimeFormat("fr-FR",{ day:"numeric", month:"short" });
 
@@ -127,8 +132,8 @@ function packLanes(children, weeks){
 
 function fontPxFor(width, title){
   const charW = 0.6;
-  const px = Math.floor(width / (charW * Math.max(1, title.length)));
-  return Math.max(8, Math.min(11, px));
+  const px = width / (charW * Math.max(1, title.length));
+  return Math.max(8, Math.min(12, px));
 }
 
 /* ---------- Composant ---------- */
@@ -234,7 +239,8 @@ function PlannerApp(){
   }, [filteredTop, tasks, weeks]);
 
   /* --------- DnD (déplacement & drop dans sous-frise) --------- */
-  const [drag,setDrag] = useState(null); // {taskId,type,startX,startY,dx,dy}
+  const dragRef = useRef(null);          // {taskId,type,startX,startY,dx,dy,...}
+  const rafRef = useRef(null);
   const subZonesRef = useRef({});        // parentId -> DOMRect
   const containerRef = useRef(null);
   const scrollRef = useRef(null);
@@ -278,30 +284,81 @@ function PlannerApp(){
     return row;
   }
 
-  useEffect(()=>{
-    if(!drag) return;
-    function onMove(e){ setDrag(d => d ? {...d, dx:e.clientX - d.startX, dy:e.clientY - d.startY } : d); }
-    function onUp(e){
-      const dropX = e.clientX, dropY = e.clientY;
+  function animate(){
+    const d = dragRef.current;
+    if(!d) return;
+    let tx = d.dx;
+    let ty = 0;
+    let width = d.startWidth;
+    if(d.type === 'move'){
+      ty = Math.round(d.dy / d.rowHeight) * d.rowHeight;
+    }else if(d.type === 'left'){
+      width = Math.max(COL_W, d.startWidth - d.dx);
+      tx = d.dx;
+      d.node.style.width = width + 'px';
+    }else if(d.type === 'right'){
+      width = Math.max(COL_W, d.startWidth + d.dx);
+      d.node.style.width = width + 'px';
+    }
+    d.node.style.transform = `translate3d(${tx}px,${ty}px,0)`;
+    const font = fontPxFor(width, d.title);
+    d.node.style.setProperty('--task-font', font + 'px');
+    if(width < BULLET_HIDE_W) d.node.classList.add('hide-bullet'); else d.node.classList.remove('hide-bullet');
+    rafRef.current = requestAnimationFrame(animate);
+  }
+
+  function startDrag(e, t, type, rowHeight, g){
+    const node = e.target.closest('.task-bar');
+    if(!node) return;
+    e.target.setPointerCapture(e.pointerId);
+    dragRef.current = {
+      taskId: t.id,
+      type,
+      startX: e.clientX,
+      startY: e.clientY,
+      dx: 0,
+      dy: 0,
+      node,
+      handle: e.target,
+      pointerId: e.pointerId,
+      startWidth: g.width,
+      rowHeight,
+      title: t.title
+    };
+    node.classList.add('is-dragging');
+    document.body.classList.add('is-dragging');
+    function onMove(ev){
+      const d = dragRef.current; if(!d) return;
+      d.dx = ev.clientX - d.startX;
+      d.dy = ev.clientY - d.startY;
+    }
+    function end(ev, cancel=false){
+      const d = dragRef.current; if(!d) return;
+      dragRef.current = null;
+      cancelAnimationFrame(rafRef.current);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('keydown', onKey);
+      d.handle.releasePointerCapture(d.pointerId);
+      d.node.classList.remove('is-dragging','hide-bullet');
+      d.node.style.transform = '';
+      d.node.style.width = d.startWidth + 'px';
+      document.body.classList.remove('is-dragging');
+      if(cancel) return;
+      const dropX = ev.clientX, dropY = ev.clientY;
       setTasks(prev=>{
-        const d=drag; if(!d) return prev;
-        const idx=prev.findIndex(t=>t.id===d.taskId); if(idx<0) return prev;
-        const t=prev[idx];
-
-        // 1) déplacement horizontal / resize
-        const deltaWeeks = Math.round((d.dx||0)/COL_W);
-        let ns = t.startISO;
-        let ne = t.endISO;
+        const idx = prev.findIndex(x=>x.id===d.taskId); if(idx<0) return prev;
+        const t0 = prev[idx];
+        const deltaWeeks = Math.round(d.dx / COL_W);
+        let ns = t0.startISO, ne = t0.endISO;
         if(d.type === 'move'){
-          ns = addWeeksISO(t.startISO, deltaWeeks, TIMELINE_START, TIMELINE_END);
-          ne = addWeeksISO(t.endISO,   deltaWeeks, TIMELINE_START, TIMELINE_END);
+          ns = addWeeksISO(t0.startISO, deltaWeeks, TIMELINE_START, TIMELINE_END);
+          ne = addWeeksISO(t0.endISO,   deltaWeeks, TIMELINE_START, TIMELINE_END);
         }else if(d.type === 'left'){
-          ns = addWeeksISO(t.startISO, deltaWeeks, TIMELINE_START, new Date(t.endISO));
+          ns = addWeeksISO(t0.startISO, deltaWeeks, TIMELINE_START, new Date(t0.endISO));
         }else if(d.type === 'right'){
-          ne = addWeeksISO(t.endISO, deltaWeeks, new Date(t.startISO), TIMELINE_END);
+          ne = addWeeksISO(t0.endISO, deltaWeeks, new Date(t0.startISO), TIMELINE_END);
         }
-
-        // 2) test : est-ce que la souris est lâchée au dessus d’une sous-frise ?
         let targetParentId = null;
         for(const [pid, rect] of Object.entries(subZonesRef.current)){
           if(dropX>=rect.left && dropX<=rect.right && dropY>=rect.top && dropY<=rect.bottom){
@@ -309,26 +366,26 @@ function PlannerApp(){
             break;
           }
         }
-
         const copy = prev.slice();
-        // Si on drop dans une sous-frise : rendre l’élément enfant du parent
-        if(targetParentId && targetParentId!==t.id){
-          const next = { ...t, parentId: targetParentId, startISO: ns, endISO: ne };
+        if(targetParentId && targetParentId!==t0.id){
+          const next = { ...t0, parentId: targetParentId, startISO: ns, endISO: ne };
           delete next.row;
           copy[idx] = next;
           return copy;
         }
-        // Sinon, on reste (ou on redevient) top-level
         const newTopRow = calcRowFromY(dropY);
-        copy[idx] = { ...t, parentId: null, row: newTopRow, startISO: ns, endISO: ne };
+        copy[idx] = { ...t0, parentId: null, row: newTopRow, startISO: ns, endISO: ne };
         return copy;
       });
-      setDrag(null);
     }
+    function onPointerUp(ev){ end(ev, false); }
+    function onKey(ev){ if(ev.key === 'Escape'){ end(ev, true); } }
     window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    return ()=>{ window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
-  }, [drag]);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('keydown', onKey);
+    rafRef.current = requestAnimationFrame(animate);
+  }
+
 
   /* --------- Actions diverses --------- */
   function toggleExpand(taskId){
@@ -415,17 +472,17 @@ function PlannerApp(){
 
   function TaskBar({t, draggable=true, onDoubleClick, labelSuffix="", rowHeight=ROW_H, gap=ROW_GAP}){
     const g = taskGridInfo(t, weeks);
-    const isNarrow = g.width < 64;
+    const isNarrow = g.width < BULLET_HIDE_W;
     const fontPx = fontPxFor(g.width, t.title + labelSuffix);
     return (
       <div className="pointer-events-none absolute left-0 top-0 w-full" style={{height: rowHeight}}>
         <div
-          className="pointer-events-auto absolute select-none rounded-lg shadow-sm group"
-          style={{ left:g.left, width:g.width, top:gap/2, height:rowHeight-gap, backgroundColor:t.color }}
+          className={"pointer-events-auto absolute select-none rounded-lg shadow-sm group task-bar" + (isNarrow ? " hide-bullet" : "")}
+          style={{ left:g.left, width:g.width, top:gap/2, height:rowHeight-gap, backgroundColor:t.color, '--task-font': fontPx }}
           onDoubleClick={onDoubleClick}
         >
-          <div className="flex h-full items-center gap-1 pl-1 pr-2 text-slate-700" style={{fontSize:fontPx}}>
-            {!isNarrow && <span className="inline-block h-2 w-2 rounded" style={{backgroundColor:t.color}} />}
+          <div className="flex h-full items-center gap-1 pl-1 pr-2 text-slate-700" style={{fontSize:'var(--task-font)'}}>
+            <span className="bullet inline-block h-2 w-2 rounded" style={{backgroundColor:t.color}} />
             <span className="truncate min-w-0 font-medium" title={`${t.title}${labelSuffix} — ${t.startISO} → ${t.endISO}`}>{t.title}{labelSuffix}</span>
             <div className="ml-auto hidden items-center gap-1 group-hover:flex">
               {t.parentId && (
@@ -446,17 +503,17 @@ function PlannerApp(){
           {draggable && (
             <>
               <div
-                onPointerDown={(e)=>{ e.stopPropagation(); setDrag({taskId:t.id, type:"move", startX:e.clientX, startY:e.clientY, dx:0, dy:0}); }}
+                onPointerDown={(e)=>{ e.stopPropagation(); startDrag(e,t,'move',rowHeight,g); }}
                 className="absolute inset-y-0 left-2 w-8 cursor-grab"
                 title="Déplacer"
               ></div>
               <div
-                onPointerDown={(e)=>{ e.stopPropagation(); setDrag({taskId:t.id, type:"left", startX:e.clientX, startY:e.clientY, dx:0, dy:0}); }}
+                onPointerDown={(e)=>{ e.stopPropagation(); startDrag(e,t,'left',rowHeight,g); }}
                 className="absolute inset-y-0 left-0 w-2 cursor-w-resize"
                 title="Ajuster début"
               ></div>
               <div
-                onPointerDown={(e)=>{ e.stopPropagation(); setDrag({taskId:t.id, type:"right", startX:e.clientX, startY:e.clientY, dx:0, dy:0}); }}
+                onPointerDown={(e)=>{ e.stopPropagation(); startDrag(e,t,'right',rowHeight,g); }}
                 className="absolute inset-y-0 right-0 w-2 cursor-e-resize"
                 title="Ajuster fin"
               ></div>
