@@ -16,6 +16,9 @@
     <!-- Supabase (optionnel, on garde la synchro telle qu'avant) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+    <!-- Markdown parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
     <meta name="color-scheme" content="light" />
     <style>
       html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
@@ -499,9 +502,20 @@ function PlannerApp(){
   }
 
   /* --------- Rendu --------- */
+  const headerRef = useRef(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  useEffect(() => {
+    function updateHeight(){
+      if(headerRef.current) setHeaderHeight(headerRef.current.offsetHeight);
+    }
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
+  }, []);
+
   const gridCols = `repeat(${visibleWeeks.length}, ${COL_W}px)`;
   const header = (
-    <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90">
+    <div ref={headerRef} className="sticky top-0 z-10 border-b border-slate-200 bg-white/90">
       <div style={{display:'grid', gridTemplateColumns:gridCols}}>
         {monthSegments.map((m,i)=>(
           <div key={`${m.label}-${i}`} className="flex items-center justify-center border-r border-slate-100 px-2 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600" style={{gridColumn:`span ${m.span} / span ${m.span}`}}>
@@ -541,7 +555,7 @@ function PlannerApp(){
       <div className="pointer-events-none absolute left-0 top-0 w-full" style={{height: rowHeight}}>
         <div
           ref={barRef}
-          className={"pointer-events-auto absolute select-none rounded-lg shadow-sm group task-bar touch-none z-10" + (isNarrow ? " hide-bullet" : "")}
+          className={"pointer-events-auto absolute select-none rounded-lg shadow-sm task-bar touch-none z-10" + (isNarrow ? " hide-bullet" : "")}
           style={{ left:g.left, width:g.width, top:gap/2, height:rowHeight-gap, backgroundColor:t.color, '--task-font': fontPx }}
           onDoubleClick={(e)=>{ e.preventDefault(); e.stopPropagation(); lastWasDblClickRef.current = true; setTimeout(()=>{ lastWasDblClickRef.current = false; },0); onToggle && onToggle(); }}
           onClick={(e)=>{ if(dragHappenedRef.current){ dragHappenedRef.current=false; return; } if(lastWasDblClickRef.current){ lastWasDblClickRef.current=false; return; } setSelectedTaskId(t.id); }}
@@ -558,22 +572,6 @@ function PlannerApp(){
             )}
             <span className="bullet inline-block h-2 w-2 rounded" style={{backgroundColor:t.color}} />
             <span className="truncate min-w-0 font-medium" title={`${t.title} — ${t.startISO} → ${t.endISO}`}>{t.title}</span>
-            <div className="ml-auto hidden items-center gap-1 group-hover:flex">
-              {t.parentId && (
-                <button
-                  data-no-drag
-                  className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50"
-                  title="Retirer de la sous-frise"
-                  onClick={(e)=>{e.stopPropagation(); setTasks(prev=>prev.map(x=> x.id===t.id ? {...x,parentId:null} : x));}}
-                >↶</button>
-              )}
-              <button
-                data-no-drag
-                onClick={(e)=>{e.stopPropagation(); removeTask(t.id);}}
-                className="rounded border border-red-200 bg-white px-1 text-[10px] text-red-700 hover:bg-red-50"
-                title="Supprimer"
-              >🗑</button>
-            </div>
           </div>
 
           {draggable && (
@@ -613,10 +611,27 @@ function PlannerApp(){
         </div>
 
         {/* Gantt */}
-        <div ref={containerRef} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm h-[82vh] max-h-[82vh] flex flex-col min-h-0">
-          {header}
+        <div className="relative">
+          {selectedTask && (
+            <div className="absolute top-0 left-0 -translate-x-full flex flex-col gap-1 p-1">
+              {selectedTask.parentId && (
+                <button
+                  className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50"
+                  title="Retirer de la sous-frise"
+                  onClick={()=>setTasks(prev=>prev.map(x=> x.id===selectedTask.id ? {...x,parentId:null} : x))}
+                >↶</button>
+              )}
+              <button
+                className="rounded border border-red-200 bg-white px-1 text-[10px] text-red-700 hover:bg-red-50"
+                title="Supprimer"
+                onClick={()=>{ removeTask(selectedTask.id); setSelectedTaskId(null); }}
+              >🗑</button>
+            </div>
+          )}
+          <div ref={containerRef} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm h-[82vh] max-h-[82vh] flex flex-col min-h-0">
+            {header}
 
-          <div className="min-h-0 flex-1 overflow-auto" ref={scrollRef}>
+            <div className="min-h-0 flex-1 overflow-auto" ref={scrollRef}>
             {/* Lignes dynamiques */}
             {layoutRows.map((row,i)=>{
               if(row.type==='main'){
@@ -675,7 +690,11 @@ function PlannerApp(){
 
         </div>
 
-        <aside className="sticky top-4 h-[82vh] overflow-y-auto border-l border-slate-200 bg-white rounded-2xl shadow-sm flex flex-col" aria-labelledby="notes-title">
+        <aside
+          className="sticky h-[82vh] overflow-y-auto border-l border-slate-200 bg-white rounded-2xl shadow-sm flex flex-col"
+          style={{ top: headerHeight + 16 }}
+          aria-labelledby="notes-title"
+        >
           <div id="notes-title" className="border-b border-slate-200 px-4 py-3 font-medium text-slate-700">{selectedTask ? selectedTask.title : 'Notes'}</div>
           <div className="p-4 space-y-4 flex-1 overflow-y-auto">
             {selectedTask ? (
@@ -684,7 +703,7 @@ function PlannerApp(){
                   <ul className="space-y-2">
                     {selectedTask.notes.map((n,i)=>(
                       <li key={i} className="flex items-start gap-2">
-                        <span className="flex-1 text-sm">{n}</span>
+                        <span className="flex-1 text-sm" dangerouslySetInnerHTML={{__html: marked.parse(n)}}></span>
                         <button className="text-xs text-red-600" onClick={()=>removeNote(i)} title="Supprimer">🗑</button>
                       </li>
                     ))}
@@ -693,7 +712,7 @@ function PlannerApp(){
                   <p className="text-sm text-slate-500">Aucune note</p>
                 )}
                 <form onSubmit={addNote} className="space-y-2">
-                  <textarea className="w-full rounded border border-slate-300 p-2 text-sm" rows="4" value={newNote} onChange={e=>setNewNote(e.target.value)} />
+                  <textarea className="w-full rounded border border-slate-300 p-2 text-sm" rows="4" value={newNote} onChange={e=>setNewNote(e.target.value)} placeholder="Écrire en Markdown" />
                   <button type="submit" className="rounded bg-slate-800 px-3 py-1 text-sm font-medium text-white hover:bg-slate-700">Ajouter</button>
                 </form>
               </>
