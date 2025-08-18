@@ -57,7 +57,7 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 /* ---------- Constantes UI / temps ---------- */
 const WEEK_STARTS_ON = 1;             // lundi
 const MS_DAY = 24*60*60*1000;
-const BASE_COL_W = 44;                // largeur par défaut d’une semaine (px)
+const COL_W = 44;                     // largeur d’une semaine (px)
 const ROW_H = 26;                     // hauteur d’une ligne (px)
 const ROW_GAP = 2;                    // petit padding vertical dans une ligne
 const SUB_ROW_H = 22;                 // hauteur d'une voie dans la sous-frise
@@ -110,19 +110,19 @@ function weekIndexOf(date, weeks){
   const idx = weeks.findIndex(w=>w.getTime()===s.getTime());
   return idx<0 ? weeks.length-1 : idx;
 }
-function taskGridInfo(task, weeks, colW){
+function taskGridInfo(task, weeks){
   const sIdx = weekIndexOf(new Date(task.startISO), weeks);
   const eIdx = weekIndexOf(new Date(task.endISO),   weeks);
   const span = Math.max(1, eIdx - sIdx + 1);
-  return { sIdx, eIdx, span, left: sIdx*colW, width: span*colW };
+  return { sIdx, eIdx, span, left: sIdx*COL_W, width: span*COL_W };
 }
 
 /* ---------- Packing (empilement) pour sous-tâches ----------
    Algorithme glouton : on trie par début, on pose dans la 1ère
    lane disponible (sans chevauchement).                        */
-function packLanes(children, weeks, colW){
+function packLanes(children, weeks){
   const items = children
-    .map(t => ({ t, ...taskGridInfo(t, weeks, colW) }))
+    .map(t => ({ t, ...taskGridInfo(t, weeks) }))
     .sort((a,b) => a.sIdx - b.sIdx || a.eIdx - b.eIdx);
 
   const lanes = []; // chaque lane = dernier eIdx
@@ -149,7 +149,6 @@ function fontPxFor(width, title){
 /* ---------- Composant ---------- */
 function PlannerApp(){
   const weeks = useMemo(()=>eachWeekOfInterval(TIMELINE_START, TIMELINE_END),[]);
-  const [colW, setColW] = useState(BASE_COL_W);
   const visibleWeeks = useMemo(
     ()=>weeks.filter(w=>!(w.getFullYear()===2026 && w.getMonth()===1)),
     [weeks]
@@ -184,6 +183,7 @@ function PlannerApp(){
     [selectedTaskId,tasks]
   );
   const [panelOpen,setPanelOpen] = useState(false);
+  const [notesOpen,setNotesOpen] = useState(true);
 
   // synchro Supabase (inchangé)
   useEffect(()=>{
@@ -258,7 +258,7 @@ function PlannerApp(){
       for (const p of rowTasks) {
         if (!p.expanded) continue;
         const children = tasks.filter(t => t.parentId === p.id);
-        const { lanesCount } = packLanes(children, visibleWeeks, colW);
+        const { lanesCount } = packLanes(children, visibleWeeks);
         rows.push({ type: 'sub', parentId: p.id, lanesCount });
       }
     }
@@ -273,17 +273,6 @@ function PlannerApp(){
   const containerRef = useRef(null);
   const scrollRef = useRef(null);
   const lastWasDblClickRef = useRef(false);
-
-  useEffect(()=>{
-    function updateWidth(){
-      if(!containerRef.current) return;
-      const width = containerRef.current.getBoundingClientRect().width;
-      setColW(width / visibleWeeks.length);
-    }
-    updateWidth();
-    window.addEventListener('resize', updateWidth);
-    return () => window.removeEventListener('resize', updateWidth);
-  }, [visibleWeeks.length, notesOpen]);
 
   // recalcul des bounding boxes des sous-frises après rendu
   useEffect(()=>{
@@ -334,14 +323,14 @@ function PlannerApp(){
         d.node.style.transform = `translate3d(${tx}px,${ty}px,0)`;
       }
     }else if(d.type === 'left'){
-      const width = Math.max(colW, d.startWidth - d.dx);
+      const width = Math.max(COL_W, d.startWidth - d.dx);
       d.node.style.transform = `translate3d(${d.dx}px,0,0)`;
       d.node.style.width = width + 'px';
       const font = fontPxFor(width, d.title);
       d.node.style.setProperty('--task-font', font + 'px');
       if(width < BULLET_HIDE_W) d.node.classList.add('hide-bullet'); else d.node.classList.remove('hide-bullet');
     }else if(d.type === 'right'){
-      const width = Math.max(colW, d.startWidth + d.dx);
+      const width = Math.max(COL_W, d.startWidth + d.dx);
       d.node.style.width = width + 'px';
       const font = fontPxFor(width, d.title);
       d.node.style.setProperty('--task-font', font + 'px');
@@ -409,7 +398,7 @@ function PlannerApp(){
       setTasks(prev=>{
         const idx = prev.findIndex(x=>x.id===d.taskId); if(idx<0) return prev;
         const t0 = prev[idx];
-        const deltaWeeks = Math.round(d.dx / colW);
+        const deltaWeeks = Math.round(d.dx / COL_W);
         let ns = t0.startISO, ne = t0.endISO;
         if(d.type === 'move'){
           ns = addWeeksISO(t0.startISO, deltaWeeks, TIMELINE_START, TIMELINE_END);
@@ -526,7 +515,7 @@ function PlannerApp(){
 
   /* --------- Rendu --------- */
 
-  const gridCols = `repeat(${visibleWeeks.length}, ${colW}px)`;
+  const gridCols = `repeat(${visibleWeeks.length}, ${COL_W}px)`;
   const header = (
     <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90">
       <div style={{display:'grid', gridTemplateColumns:gridCols}}>
@@ -547,7 +536,7 @@ function PlannerApp(){
   );
 
   function TaskBar({t, draggable=true, onToggle, isExpanded=false, rowHeight=ROW_H, gap=ROW_GAP}){
-    const g = taskGridInfo(t, visibleWeeks, colW);
+    const g = taskGridInfo(t, visibleWeeks);
     const isNarrow = g.width < BULLET_HIDE_W;
     const fontPx = fontPxFor(g.width, t.title);
     const barRef = useRef(null);
@@ -612,7 +601,7 @@ function PlannerApp(){
     <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
       <div
         className="mx-auto max-w-full px-2 py-4 h-[82vh]"
-        style={{ display:'grid', gridTemplateColumns:'1fr 360px', gridTemplateRows:'auto 1fr', gap:'24px' }}
+        style={{ display:'grid', gridTemplateColumns: notesOpen ? '1fr 360px' : '1fr', gridTemplateRows:'auto 1fr', gap:'24px' }}
       >
         {/* Top bar sur 2 colonnes */}
         <div style={{ gridColumn:'1 / -1', gridRow:1 }} className="flex items-center justify-between">
@@ -677,7 +666,7 @@ function PlannerApp(){
               const parent = tasks.find(t=>t.id===row.parentId);
               if(!parent) return null;
               const children = tasks.filter(t=>t.parentId===row.parentId);
-              const packed = packLanes(children, visibleWeeks, colW);
+              const packed = packLanes(children, visibleWeeks);
 
               return (
                 <div
@@ -710,12 +699,16 @@ function PlannerApp(){
       </div>
 
         {/* Notes droite, ligne 2 */}
-        <aside
+        {notesOpen && (
+          <aside
           className="h-full border-l border-slate-200 bg-white rounded-2xl shadow-sm flex flex-col min-h-0"
           style={{ gridColumn:'2', gridRow:2 }}
           aria-labelledby="notes-title"
         >
-          <div id="notes-title" className="border-b border-slate-200 px-4 py-3 font-medium text-slate-700">{selectedTask ? selectedTask.title : 'Notes'}</div>
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+            <div id="notes-title" className="font-medium text-slate-700">{selectedTask ? selectedTask.title : 'Notes'}</div>
+            <button onClick={()=>setNotesOpen(false)} className="rounded-full border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 hover:bg-slate-50" aria-label="Masquer les notes">❯</button>
+          </div>
           <div className="p-4 space-y-4 flex-1 overflow-y-auto">
             {selectedTask ? (
               <>
@@ -740,8 +733,17 @@ function PlannerApp(){
               <p className="text-sm text-slate-500">Sélectionnez une tâche pour voir ses notes.</p>
             )}
           </div>
-        </aside>
+          </aside>
+        )}
       </div>
+      {!notesOpen && (
+        <button
+          onClick={()=>setNotesOpen(true)}
+          className="fixed right-0 top-1/2 z-40 -translate-y-1/2 transform rounded-l-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 shadow"
+        >
+          Notes
+        </button>
+      )}
         {categories.length>0 && (
         <footer className="w-full max-w-full mx-auto px-2 pb-4">
           <div className="flex flex-wrap items-center gap-2">
