@@ -474,6 +474,34 @@ function PlannerApp(){
     setTasks(prev=>prev.map(t=>t.id===selectedTask.id?{...t,notes:t.notes.filter((_,i)=>i!==idx)}:t));
   }
 
+  function handleExport(){
+    const data = JSON.stringify({categories, tasks});
+    navigator.clipboard.writeText(data).then(()=>alert("État copié."));
+  }
+
+  function handleImport(){
+    const txt = prompt("Collez le JSON :");
+    if(!txt) return;
+    try{
+      const s = JSON.parse(txt);
+      if(s.categories) setCategories(s.categories);
+      if(s.tasks) setTasks(s.tasks.map((t,i)=>({
+        ...t,
+        row: typeof t.row==='number' ? t.row : i,
+        notes: Array.isArray(t.notes) ? t.notes : [],
+        expanded: !!t.expanded,
+        parentId: t.parentId || null
+      })));
+      setPanelOpen(false);
+    }catch{ alert("JSON invalide"); }
+  }
+
+  function handleTransfer(){
+    const url = location.origin + location.pathname + location.search + '#s=' + b64Encode(JSON.stringify({categories, tasks}));
+    window.open(url,'_blank');
+    setPanelOpen(false);
+  }
+
   /* --------- Ajout tâche --------- */
   const [newTask, setNewTask] = useState({
     title: "",
@@ -813,30 +841,15 @@ function PlannerApp(){
                 <div className="flex gap-2">
                   <button
                     className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
-                    onClick={()=>{ const data=JSON.stringify({categories,tasks}); navigator.clipboard.writeText(data).then(()=>alert("État copié.")); }}
+                    onClick={handleExport}
                   >Exporter</button>
                   <button
                     className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
-                    onClick={()=>{
-                      const txt = prompt("Collez le JSON :");
-                      if(!txt) return;
-                      try{
-                        const s=JSON.parse(txt);
-                        if(s.categories) setCategories(s.categories);
-                        if(s.tasks) setTasks(s.tasks.map((t,i)=>({
-                          ...t,
-                          row: typeof t.row==='number' ? t.row : i,
-                          notes: Array.isArray(t.notes) ? t.notes : [],
-                          expanded: !!t.expanded,
-                          parentId: t.parentId || null
-                        })));
-                        setPanelOpen(false);
-                      }catch{ alert("JSON invalide"); }
-                    }}
+                    onClick={handleImport}
                   >Importer</button>
                   <button
                     className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                    onClick={()=>{ const url=location.origin+location.pathname+location.search+'#s='+b64Encode(JSON.stringify({categories,tasks})); window.open(url,'_blank'); setPanelOpen(false); }}
+                    onClick={handleTransfer}
                   >Nouveau (→ transfère)</button>
                 </div>
               </div>
