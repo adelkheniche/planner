@@ -615,15 +615,15 @@ function PlannerApp(){
         style={{ display:'grid', gridTemplateColumns:'1fr 360px', gridTemplateRows:'auto 1fr', gap:'24px' }}
       >
         {/* Top bar sur 2 colonnes */}
-        <div style={{ gridColumn:'1 / -1', gridRow:1 }} className="flex items-center justify-between">
+        <div style={{ gridColumn:'1 / -1', gridRow:1 }} className="relative flex items-center justify-center px-3">
           <button
             onClick={() => setPanelOpen(v => !v)}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+            className="absolute left-0 inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
           >
             <span style={{fontSize:18}}>☰</span> Planificateur
           </button>
           <h1 className="text-lg font-semibold tracking-tight">Planning D.U 17</h1>
-          <img src="logo.png" alt="Logo" className="h-12 w-auto" />
+          <img src="logo.png" alt="Logo" className="absolute right-0 h-[55px] w-auto" />
         </div>
 
         {/* Gantt gauche, ligne 2 */}
