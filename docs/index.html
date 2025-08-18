@@ -601,7 +601,13 @@ function PlannerApp(){
     <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
       <div
         className="mx-auto max-w-full px-2 py-4 h-[82vh]"
-        style={{ display:'grid', gridTemplateColumns: notesOpen ? '1fr 360px' : '1fr', gridTemplateRows:'auto 1fr', gap:'24px' }}
+        style={{
+          display:'grid',
+          gridTemplateColumns: notesOpen ? '1fr 360px' : '1fr',
+          gridTemplateRows:'auto 1fr',
+          columnGap: notesOpen ? '24px' : '0px',
+          rowGap:'24px'
+        }}
       >
         {/* Top bar sur 2 colonnes */}
         <div style={{ gridColumn:'1 / -1', gridRow:1 }} className="flex items-center justify-between">
