@@ -305,7 +305,7 @@ function PlannerApp(){
     for(const r of layoutRows){
       const h = r.type==='main' ? ROW_H : r.lanesCount * SUB_ROW_H;
       if(r.type==='main'){
-        if(y < acc + h/2) return row;
+        if(y < acc + h) return row;
         row++;
       }
       acc += h;
@@ -319,7 +319,8 @@ function PlannerApp(){
     if(d.type === 'move'){
       if(d.active){
         const tx = d.dx;
-        const ty = Math.round(d.dy / d.rowHeight) * d.rowHeight;
+        const currentRow = calcRowFromY(d.startY + d.dy);
+        const ty = (currentRow - d.startRow) * d.rowHeight;
         d.node.style.transform = `translate3d(${tx}px,${ty}px,0)`;
       }
     }else if(d.type === 'left'){
@@ -357,7 +358,8 @@ function PlannerApp(){
       rowHeight,
       title: t.title,
       active: type !== 'move',
-      downAt: performance.now()
+      downAt: performance.now(),
+      startRow: calcRowFromY(e.clientY)
     };
     if(dragRef.current.active){
       node.classList.add('is-dragging');
