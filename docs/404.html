@@ -31,12 +31,6 @@
   </head>
   <body>
      <div id="root"></div>
-    <div class="mt-8 flex flex-col items-center">
-      <img src="scan-me.png" alt="scan me" class="w-32 h-32">
-      <p class="mt-2 text-sm text-slate-600">scan me</p>
-    </div>
-
-
     <script type="text/babel" data-presets="env,react">
 /* ===========================================================
    GANTT PLIANT (sub-frise inline + empilement multi-lignes)
@@ -832,6 +826,10 @@ function PlannerApp(){
                     className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
                     onClick={()=>{ const url=location.origin+location.pathname+location.search+'#s='+b64Encode(JSON.stringify({categories,tasks})); window.open(url,'_blank'); setPanelOpen(false); }}
                   >Nouveau (→ transfère)</button>
+                </div>
+                <div className="mt-4 flex flex-col items-center">
+                  <img src="scan-me.png" alt="QR code pour accéder à l'outil" className="w-32 h-32" />
+                  <p className="mt-2 text-sm text-slate-600">scan me</p>
                 </div>
               </div>
             </aside>
