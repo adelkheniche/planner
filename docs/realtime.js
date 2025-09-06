@@ -1,0 +1,198 @@
+/* docs/realtime.js
+   Plug & play realtime pour votre planner statique (GitHub Pages + Supabase).
+   - Requiert la table public.blocks (SQL fourni précédemment) + publication supabase_realtime.
+   - Aucune auth: usage clé anon.
+   - Expose une API globale window.RT pour brancher votre UI.
+*/
+
+(() => {
+  // ─────────────────────────────────────────────────────────────────────────────
+  //  CONFIG À RENSEIGNER
+  // ─────────────────────────────────────────────────────────────────────────────
+  const SUPABASE_URL = "https://VOTRE_PROJET.supabase.co";     // ← remplacez
+  const SUPABASE_ANON_KEY = "VOTRE_CLE_ANON";                  // ← remplacez
+  const ROOM = "planner_room";                                 // un seul “salon”
+  const TABLE = "blocks";                                      // table Postgres
+  const SCHEMA = "public";                                     // schéma
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  //  OUTILS
+  // ─────────────────────────────────────────────────────────────────────────────
+  const uuid = () =>
+    ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>
+      (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c/4).toString(16)
+    );
+
+  const throttle = (fn, ms=50) => {
+    let last = 0, pending;
+    return (...args) => {
+      const now = Date.now();
+      const run = () => { last = now; fn(...args); };
+      if (now - last >= ms) run();
+      else {
+        clearTimeout(pending);
+        pending = setTimeout(run, ms - (now - last));
+      }
+    };
+  };
+
+  // Hooks UI optionnels: si votre app expose window.App, on s’y branche, sinon no-op
+  const hooks = {
+    onDbChange: (type, row, oldRow) => {
+      if (window.App && typeof window.App.onDbChange === "function") {
+        window.App.onDbChange(type, row, oldRow);
+      }
+    },
+    onPresence: (list) => {
+      if (window.App && typeof window.App.onPresence === "function") {
+        window.App.onPresence(list);
+      }
+    },
+    onLiveDrag: (msg) => {
+      if (window.App && typeof window.App.onLiveDrag === "function") {
+        window.App.onLiveDrag(msg);
+      }
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  //  CLIENT SUPABASE
+  // ─────────────────────────────────────────────────────────────────────────────
+  if (!window.supabase) {
+    console.error("[RT] Supabase JS v2 non chargé (CDN).");
+    return;
+  }
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // Identité “anonyme” locale (mémoire navigateur)
+  const stored = JSON.parse(localStorage.getItem("planner_identity") || "{}");
+  const identity = {
+    id: stored.id || uuid(),
+    pseudo: stored.pseudo || prompt("Votre pseudo ?") || ("user-" + Math.floor(Math.random()*1000)),
+    color: stored.color || prompt("Votre couleur hex (ex: #1e90ff) ?") || "#1e90ff"
+  };
+  localStorage.setItem("planner_identity", JSON.stringify(identity));
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  //  CANAL TEMPS RÉEL (Presence + Broadcast)
+  // ─────────────────────────────────────────────────────────────────────────────
+  const channel = sb.channel(ROOM, {
+    config: {
+      presence: { key: identity.id }
+    }
+  });
+
+  channel
+    // Liste des personnes connectées (sync)
+    .on("presence", { event: "sync" }, () => {
+      // presenceState() => { key: [states...] }
+      const state = channel.presenceState();
+      const flat = [];
+      for (const [id, arr] of Object.entries(state)) {
+        // on garde la dernière version
+        const st = arr[arr.length - 1];
+        if (st) flat.push({ id, pseudo: st.pseudo, color: st.color });
+      }
+      hooks.onPresence(flat);
+    })
+    // Drag en direct (messages éphémères)
+    .on("broadcast", { event: "drag" }, (payload) => {
+      const msg = payload.payload;  // { t, blockId, pos, by, color }
+      hooks.onLiveDrag(msg);
+    })
+    .subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        // Publie notre état (pseudo/couleur)
+        await channel.track({ pseudo: identity.pseudo, color: identity.color });
+      }
+    });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  //  CHANGEMENTS BDD (INSERT/UPDATE/DELETE)
+  // ─────────────────────────────────────────────────────────────────────────────
+  const dbChannel = sb.channel("db-" + ROOM)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: SCHEMA, table: TABLE },
+      (payload) => {
+        const { eventType, new: row, old: oldRow } = payload;
+        hooks.onDbChange(eventType, row, oldRow);
+      }
+    )
+    .subscribe();
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  //  API PUBLIQUE (à utiliser dans votre UI)
+  // ─────────────────────────────────────────────────────────────────────────────
+  const API = {
+    // Récupération initiale
+    async fetchAll(where = {}) {
+      let query = sb.from(TABLE).select("*").order("day", { ascending: true }).order("starts_at", { ascending: true });
+      // Filtres simples { day, lane, ... } si vous voulez
+      Object.entries(where).forEach(([k, v]) => { query = query.eq(k, v); });
+      const { data, error } = await query;
+      if (error) throw error;
+      return data;
+    },
+
+    // CRUD
+    async createBlock(block) {
+      const row = { ...block, last_modified_by: identity.pseudo };
+      const { data, error } = await sb.from(TABLE).insert(row).select().single();
+      if (error) throw error;
+      return data;
+    },
+
+    async updateBlock(id, patch) {
+      const { data, error } = await sb.from(TABLE)
+        .update({ ...patch, last_modified_by: identity.pseudo })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+
+    async deleteBlock(id) {
+      const { error } = await sb.from(TABLE).delete().eq("id", id);
+      if (error) throw error;
+      return true;
+    },
+
+    // Drag “live” (sans écrire en BDD tant que non lâché)
+    startDrag(blockId) {
+      channel.send({ type: "broadcast", event: "drag", payload: {
+        t: "start", blockId, by: identity.pseudo, color: identity.color
+      }});
+    },
+
+    moveDrag: throttle((blockId, pos /* ex: {x,y} ou {day, starts_at} */) => {
+      channel.send({ type: "broadcast", event: "drag", payload: {
+        t: "move", blockId, pos, by: identity.pseudo, color: identity.color
+      }});
+    }, 40),
+
+    async endDrag(blockId, finalPatch /* ex: { day, starts_at, duration, lane } */) {
+      channel.send({ type: "broadcast", event: "drag", payload: {
+        t: "end", blockId, by: identity.pseudo, color: identity.color
+      }});
+      // Écrit l’état final en BDD → tous recevront l’UPDATE via postgres_changes
+      return API.updateBlock(blockId, finalPatch);
+    },
+
+    // Accès identité locale (pour votre UI)
+    getIdentity() { return { ...identity }; },
+
+    // Permet de changer pseudo/couleur à chaud
+    async setIdentity({ pseudo, color }) {
+      if (pseudo) identity.pseudo = pseudo;
+      if (color)  identity.color  = color;
+      localStorage.setItem("planner_identity", JSON.stringify(identity));
+      // republie l’état presence
+      await channel.track({ pseudo: identity.pseudo, color: identity.color });
+    }
+  };
+
+  // Expose global
+  window.RT = API;
+})();
