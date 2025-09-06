@@ -48,6 +48,32 @@ const CFG = {
     onPresence: (list) => {
       if (window.App && typeof window.App.onPresence === "function") {
         window.App.onPresence(list);
+      } else {
+        // Affiche une liste simple des pseudos connectés
+        let box = document.getElementById("rt-presence");
+        if (!box) {
+          box = document.createElement("div");
+          box.id = "rt-presence";
+          box.style.position = "fixed";
+          box.style.top = "8px";
+          box.style.right = "8px";
+          box.style.display = "flex";
+          box.style.gap = "4px";
+          box.style.flexWrap = "wrap";
+          box.style.zIndex = "2147483647"; // au-dessus de tout
+          document.body.appendChild(box);
+        }
+        box.innerHTML = "";
+        list.forEach(p => {
+          const span = document.createElement("span");
+          span.textContent = p.pseudo;
+          span.style.border = `1px solid ${p.color}`;
+          span.style.color = p.color;
+          span.style.padding = "2px 6px";
+          span.style.borderRadius = "9999px";
+          span.style.fontSize = "12px";
+          box.appendChild(span);
+        });
       }
     },
     onLiveDrag: (msg) => {
@@ -67,13 +93,19 @@ const CFG = {
   const sb = window.supabase.createClient(CFG.url, CFG.anonKey);
 
   // Identité “anonyme” locale (mémoire navigateur)
-  const stored = JSON.parse(localStorage.getItem("planner_identity") || "{}");
-  const identity = {
-    id: stored.id || uuid(),
-    pseudo: stored.pseudo || prompt("Votre pseudo ?") || ("user-" + Math.floor(Math.random()*1000)),
-    color: stored.color || prompt("Votre couleur hex (ex: #1e90ff) ?") || "#1e90ff"
-  };
-  localStorage.setItem("planner_identity", JSON.stringify(identity));
+  const PALETTE = ["#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9","#ef4444","#22c55e","#f59e0b","#64748b","#d946ef","#14b8a6","#a16207"];
+  const NAMES = ["Arthur","Lancelot","Perceval","Karadoc","Bohort","Léodagan","Séli","Guenièvre","Merlin","Mevanwi","Yvain","Gauvain"];
+  const ID_KEY = "planner_identity_v2";
+  let identity = null;
+  try {
+    identity = JSON.parse(localStorage.getItem(ID_KEY) || "null");
+  } catch {}
+  if (!identity) {
+    const pseudo = NAMES[Math.floor(Math.random() * NAMES.length)];
+    const color = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+    identity = { id: uuid(), pseudo, color };
+    localStorage.setItem(ID_KEY, JSON.stringify(identity));
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   //  CANAL TEMPS RÉEL (Presence + Broadcast)
