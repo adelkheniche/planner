@@ -30,12 +30,14 @@
       body.is-dragging { cursor:grabbing; user-select:none; }
     </style>
   </head>
-  <body>
-     <div id="root"></div>
-    <script type="text/babel" data-presets="env,react">
+    <body>
+       <div id="root"></div>
+      <script type="text/babel" data-presets="env,react" data-type="module">
 /* ===========================================================
    GANTT collaboratif (presence + broadcast + BDD realtime)
    =========================================================== */
+
+import { PALETTE, NAMES, ID_KEY } from "./identity.js";
 
 const { useEffect, useMemo, useRef, useState } = React;
 
@@ -54,9 +56,6 @@ if (window.supabase && typeof window.supabase.createClient === "function") {
 }
 
 /* ---------- Identité (pseudo + couleur) ---------- */
-const PALETTE = ["#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9","#ef4444","#22c55e","#f59e0b","#64748b","#d946ef","#14b8a6","#a16207"];
-const NAMES = ["Arthur","Lancelot","Perceval","Karadoc","Bohort","Léodagan","Séli","Guenièvre","Merlin","Mevanwi","Yvain","Gauvain"];
-const ID_KEY = "planner_identity_v2";
 let IDENTITY = null;
 try {
   IDENTITY = JSON.parse(localStorage.getItem(ID_KEY) || "null");
