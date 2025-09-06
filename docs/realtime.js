@@ -195,7 +195,7 @@ const CFG = {
     async setIdentity({ pseudo, color }) {
       if (pseudo) identity.pseudo = pseudo;
       if (color)  identity.color  = color;
-      localStorage.setItem("planner_identity", JSON.stringify(identity));
+      localStorage.setItem(ID_KEY, JSON.stringify(identity));
       // republie l’état presence
       await channel.track({ pseudo: identity.pseudo, color: identity.color });
     }
