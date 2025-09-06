@@ -13,7 +13,7 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- Supabase (optionnel, on garde la synchro telle qu'avant) -->
+    <!-- Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <!-- Markdown parser -->
@@ -23,9 +23,10 @@
     <link rel="stylesheet" href="faclab.css" />
     <style>
       html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-      .task-bar { font-size: var(--task-font,11px); }
+      .task-bar { font-size: var(--task-font,11px); transition: box-shadow .08s ease; }
       .task-bar.is-dragging { opacity:0.9; z-index:50; cursor:grabbing; }
       .task-bar.hide-bullet .bullet { display:none; }
+      .task-bar.remote-moving { outline: 2px dashed currentColor; }
       body.is-dragging { cursor:grabbing; user-select:none; }
     </style>
   </head>
@@ -33,25 +34,32 @@
      <div id="root"></div>
     <script type="text/babel" data-presets="env,react">
 /* ===========================================================
-   GANTT PLIANT (sub-frise inline + empilement multi-lignes)
-   -----------------------------------------------------------
-   • Cliquer une tâche “parent” ⇒ ouvre une sous-frise juste
-     en dessous, dans la même vue, SANS fenêtre modale.
-   • Les sous-tâches s’y empilent en LIGNES multiples dans la
-     même colonne/semaine (packing automatique par collisions).
-   • On peut glisser-déposer une tâche de la frise principale
-     dans la sous-frise ouverte pour l’y ajouter (et inversement
-     pour la laisser en principal : on la dépose hors zone).
-   • Le code reste mono-fichier (index.html / 404.html).
+   GANTT collaboratif (presence + broadcast + BDD realtime)
    =========================================================== */
 
 const { useEffect, useMemo, useRef, useState } = React;
 
-/* ---------- Supabase (comme avant) ---------- */
+/* ---------- Supabase ---------- */
 const SUPABASE_URL = "https://kadoikpkjmkchabvnuqs.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZG9pa3Bram1rY2hhYnZudXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMzEwNDIsImV4cCI6MjA3MDkwNzA0Mn0.q28StZ8nsrbck2Xx6xBCfpgdfLotxne3cyWc6-o_FZM";
 const DOC_SLUG = "main";
+const ROOM = "planner_room_main";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* ---------- Identité (pseudo + couleur) ---------- */
+const PALETTE = ["#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9","#ef4444","#22c55e","#f59e0b","#64748b","#d946ef","#14b8a6","#a16207"];
+const ID_KEY = "planner_identity_v2";
+let IDENTITY = null;
+try {
+  IDENTITY = JSON.parse(localStorage.getItem(ID_KEY) || "null");
+} catch {}
+if (!IDENTITY) {
+  const pseudo = prompt("Votre pseudo ?") || ("user-" + Math.floor(Math.random()*1000));
+  const color  = prompt("Votre couleur hex (ex: #1e90ff) ?") || PALETTE[Math.floor(Math.random()*PALETTE.length)];
+  const id     = (crypto?.randomUUID && crypto.randomUUID()) || String(Date.now());
+  IDENTITY = { id, pseudo, color };
+  localStorage.setItem(ID_KEY, JSON.stringify(IDENTITY));
+}
 
 /* ---------- Constantes UI / temps ---------- */
 const WEEK_STARTS_ON = 1;             // lundi
@@ -67,7 +75,17 @@ const BULLET_HIDE_W = 48;
 const fmtMonthYear = new Intl.DateTimeFormat("fr-FR",{ month:"long", year:"numeric" });
 const fmtDM = new Intl.DateTimeFormat("fr-FR",{ day:"numeric", month:"short" });
 
-/* ---------- Dates helpers ---------- */
+/* ---------- Helpers ---------- */
+const throttle = (fn, ms=50) => {
+  let last = 0, to=null;
+  return (...args) => {
+    const now = Date.now();
+    const run = () => { last = now; fn(...args); };
+    if (now - last >= ms) run();
+    else { clearTimeout(to); to = setTimeout(run, ms - (now - last)); }
+  };
+};
+
 function startOfWeek(d, w=WEEK_STARTS_ON){ const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); const day=x.getDay(); const diff=(day-w+7)%7; x.setDate(x.getDate()-diff); x.setHours(0,0,0,0); return x; }
 function endOfWeek(d, w=WEEK_STARTS_ON){ const s=startOfWeek(d,w); const e=new Date(s.getTime()+MS_DAY*6); e.setHours(23,59,59,999); return e; }
 function clampDate(d,minD,maxD){ if(d<minD) return new Date(minD); if(d>maxD) return new Date(maxD); return d; }
@@ -100,9 +118,6 @@ function b64Decode(str){ try{ return decodeURIComponent(escape(atob(str))); }cat
   }catch(e){ console.warn("State-from-hash failed", e); }
 })();
 
-/* ---------- Couleurs ---------- */
-const PALETTE = ["#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9","#ef4444","#22c55e","#f59e0b","#64748b","#d946ef","#14b8a6","#a16207"];
-
 /* ---------- Utils Gantt ---------- */
 function weekIndexOf(date, weeks){
   const s = startOfWeek(clampDate(date, TIMELINE_START, TIMELINE_END));
@@ -116,9 +131,7 @@ function taskGridInfo(task, weeks, colW){
   return { sIdx, eIdx, span, left: sIdx*colW, width: span*colW };
 }
 
-/* ---------- Packing (empilement) pour sous-tâches ----------
-   Algorithme glouton : on trie par début, on pose dans la 1ère
-   lane disponible (sans chevauchement).                        */
+/* ---------- Packing sous-tâches ---------- */
 function packLanes(children, weeks, colW){
   const items = children
     .map(t => ({ t, ...taskGridInfo(t, weeks, colW) }))
@@ -185,7 +198,88 @@ function PlannerApp(){
   const [notesOpen,setNotesOpen] = useState(true);
   const [colW,setColW] = useState(COL_W_MIN);
 
-  // synchro Supabase (inchangé)
+  /* ---------- Collaboration: Presence + Broadcast ---------- */
+  const [presence, setPresence] = useState([]);           // [{id,pseudo,color}]
+  const chanRef = useRef(null);                           // realtime channel
+  const ghostRef = useRef(new Map());                    // taskId -> {from,deltaWeeks,color}
+
+  // Abonnement presence + broadcast (drag live)
+  useEffect(()=>{
+    const ch = supabase.channel(ROOM, { config: { presence: { key: IDENTITY.id } } });
+
+    ch.on("presence", { event: "sync" }, () => {
+      const st = ch.presenceState();
+      const flat = [];
+      for (const [id, arr] of Object.entries(st)) {
+        const last = arr[arr.length-1];
+        if (last) flat.push({ id, pseudo:last.pseudo, color:last.color });
+      }
+      setPresence(flat);
+    });
+
+    ch.on("broadcast", { event: "drag" }, ({ payload }) => {
+      const { t, taskId, from, deltaWeeks=0, by, color } = payload || {};
+      if (!taskId || from === IDENTITY.id) return;
+
+      const el = document.querySelector(`.task-bar[data-taskid="${CSS.escape(taskId)}"]`);
+      if (!el) return;
+
+      el.style.color = color || el.style.color;
+      if (t === "start") {
+        el.classList.add("remote-moving");
+        ghostRef.current.set(taskId, { from, deltaWeeks:0, color });
+      } else if (t === "move") {
+        const g = ghostRef.current.get(taskId) || { from, deltaWeeks:0, color };
+        g.deltaWeeks = deltaWeeks;
+        ghostRef.current.set(taskId, g);
+        const px = deltaWeeks * colW;
+        el.style.transform = `translate3d(${px}px,0,0)`;
+      } else if (t === "end") {
+        ghostRef.current.delete(taskId);
+        el.classList.remove("remote-moving");
+        el.style.transform = "";
+      }
+    });
+
+    ch.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await ch.track({ pseudo: IDENTITY.pseudo, color: IDENTITY.color });
+      }
+    });
+
+    chanRef.current = ch;
+    return () => { try { supabase.removeChannel(ch); } catch {} };
+  }, [colW]);
+
+  /* ---------- Realtime BDD sur planner_state ---------- */
+  useEffect(()=>{
+    // IMPORTANT : exécuter côté Supabase :
+    // ALTER PUBLICATION supabase_realtime ADD TABLE public.planner_state;
+    const ch = supabase.channel("db-planner")
+      .on("postgres_changes",
+        { event:"*", schema:"public", table:"planner_state", filter:`slug=eq.${DOC_SLUG}` },
+        (payload) => {
+          const row = payload.new || payload.old;
+          if (!row || !row.data) return;
+          const s = row.data;
+          // Recharge l'état reçu (dernière écriture)
+          if (s.categories) setCategories(s.categories);
+          if (s.tasks) {
+            setTasks(s.tasks.map((t,i)=>({
+              ...t,
+              row: typeof t.row==='number' ? t.row : i,
+              notes: Array.isArray(t.notes) ? t.notes : [],
+              expanded: !!t.expanded,
+              parentId: t.parentId || null
+            })));
+          }
+        }
+      )
+      .subscribe();
+    return ()=>{ try { supabase.removeChannel(ch); } catch {} };
+  }, []);
+
+  // synchro initiale depuis BDD
   useEffect(()=>{
     (async ()=>{
       try{
@@ -211,12 +305,18 @@ function PlannerApp(){
       }catch{}
     })();
   },[]);
+
+  // sauvegarde locale
   useEffect(()=>{ saveState({categories,tasks}); },[categories,tasks]);
+
+  // upsert debouncé vers BDD (toutes modifs)
   useEffect(()=>{
-    const payload={categories,tasks};
-    const t=setTimeout(async ()=>{ try{
-      await supabase.from("planner_state").upsert({slug:DOC_SLUG, data:payload, updated_at:new Date().toISOString()});
-    }catch{} },600);
+    const payload={categories,tasks, last_by: IDENTITY.pseudo};
+    const t=setTimeout(async ()=>{
+      try{
+        await supabase.from("planner_state").upsert({slug:DOC_SLUG, data:payload, updated_at:new Date().toISOString()});
+      }catch(e){ console.warn("upsert error", e?.message); }
+    }, 600);
     return ()=>clearTimeout(t);
   },[categories,tasks]);
 
@@ -231,15 +331,8 @@ function PlannerApp(){
     return top.filter(t => !t.categoryId || enabledCategoryIds.has(t.categoryId));
   }, [tasks, categories, enabledCategoryIds]);
 
-  /* --------- LAYOUT DES LIGNES RENDUES ---------
-     On “aplatit” : pour chaque rang top-level, on rend :
-       - la ligne principale (ROW_H)
-       - pour CHAQUE tâche expandée dans cette ligne,
-         une sous-frise (1 bloc dont la hauteur = nbLanes * ROW_H)
-     Ainsi tout reste inline et scrollable, sans fenêtre. */
-  // useMemo pour aplatir lignes principales + sous-frises
+  /* --------- LAYOUT des lignes (principal + sous-frises) --------- */
   const layoutRows = useMemo(() => {
-    // rows = [{ type:'main', row }, { type:'sub', parentId, lanesCount }, ...]
     const rows = [];
     if (!filteredTop || filteredTop.length === 0) return rows;
 
@@ -266,10 +359,10 @@ function PlannerApp(){
     return rows;
   }, [filteredTop, tasks, visibleWeeks, colW]);
 
-  /* --------- DnD (déplacement & drop dans sous-frise) --------- */
-  const dragRef = useRef(null);          // {taskId,type,startX,startY,dx,dy,...}
+  /* --------- DnD --------- */
+  const dragRef = useRef(null);
   const rafRef = useRef(null);
-  const subZonesRef = useRef({});        // parentId -> DOMRect
+  const subZonesRef = useRef({});
   const containerRef = useRef(null);
   const scrollRef = useRef(null);
   const lastWasDblClickRef = useRef(false);
@@ -291,7 +384,7 @@ function PlannerApp(){
     };
   }, [visibleWeeks.length]);
 
-  // recalcul des bounding boxes des sous-frises après rendu
+  // recalcul zones sous-frises
   useEffect(()=>{
     const update = () => {
       const map = {};
@@ -357,6 +450,12 @@ function PlannerApp(){
     rafRef.current = requestAnimationFrame(animate);
   }
 
+  const sendDragMove = throttle((taskId, dxPx) => {
+    const ch = chanRef.current; if(!ch) return;
+    const deltaWeeks = Math.round(dxPx / colW);
+    ch.send({ type:"broadcast", event:"drag", payload: { t:"move", taskId, from:IDENTITY.id, deltaWeeks, by:IDENTITY.pseudo, color:IDENTITY.color }});
+  }, 40);
+
   function startDrag(e, t, type, rowHeight, g){
     e.preventDefault();
     const node = e.target.closest('.task-bar');
@@ -383,6 +482,12 @@ function PlannerApp(){
       node.style.willChange = 'transform,width';
       document.body.classList.add('is-dragging');
     }
+    // broadcast start
+    const ch = chanRef.current;
+    if (ch && type === 'move') {
+      ch.send({ type:"broadcast", event:"drag", payload:{ t:"start", taskId:t.id, from:IDENTITY.id, by:IDENTITY.pseudo, color:IDENTITY.color }});
+    }
+
     function onMove(ev){
       const d = dragRef.current; if(!d) return;
       d.dx = ev.clientX - d.startX;
@@ -396,7 +501,9 @@ function PlannerApp(){
           document.body.classList.add('is-dragging');
         }
       }
+      if (d.type === 'move') sendDragMove(d.taskId, d.dx);
     }
+
     function end(ev, cancel=false){
       const d = dragRef.current; if(!d) return;
       dragHappenedRef.current = d.active;
@@ -411,8 +518,16 @@ function PlannerApp(){
       d.node.style.width = d.startWidth + 'px';
       d.node.style.willChange = '';
       document.body.classList.remove('is-dragging');
+
+      // broadcast end
+      const ch = chanRef.current;
+      if (ch && d.type === 'move') {
+        ch.send({ type:"broadcast", event:"drag", payload:{ t:"end", taskId:d.taskId, from:IDENTITY.id, by:IDENTITY.pseudo, color:IDENTITY.color }});
+      }
+
       if(cancel) return;
       if(!d.active || lastWasDblClickRef.current){ lastWasDblClickRef.current = false; return; }
+
       const dropX = ev.clientX, dropY = ev.clientY;
       setTasks(prev=>{
         const idx = prev.findIndex(x=>x.id===d.taskId); if(idx<0) return prev;
@@ -436,13 +551,13 @@ function PlannerApp(){
         }
         const copy = prev.slice();
         if(targetParentId && targetParentId!==t0.id){
-          const next = { ...t0, parentId: targetParentId, startISO: ns, endISO: ne };
+          const next = { ...t0, parentId: targetParentId, startISO: ns, endISO: ne, lastBy: IDENTITY.pseudo };
           delete next.row;
           copy[idx] = next;
           return copy;
         }
         const newTopRow = calcRowFromY(dropY);
-        copy[idx] = { ...t0, parentId: null, row: newTopRow, startISO: ns, endISO: ne };
+        copy[idx] = { ...t0, parentId: null, row: newTopRow, startISO: ns, endISO: ne, lastBy: IDENTITY.pseudo };
         return copy;
       });
     }
@@ -453,7 +568,6 @@ function PlannerApp(){
     window.addEventListener('keydown', onKey);
     rafRef.current = requestAnimationFrame(animate);
   }
-
 
   /* --------- Actions diverses --------- */
   function toggleExpand(taskId){
@@ -527,7 +641,8 @@ function PlannerApp(){
       row: tasks.length,
       notes: [],
       parentId: null,
-      expanded: false
+      expanded: false,
+      lastBy: IDENTITY.pseudo
     };
     setTasks(prev=>[...prev, t]);
   }
@@ -577,10 +692,12 @@ function PlannerApp(){
         <div
           ref={barRef}
           className={"pointer-events-auto absolute select-none rounded-lg shadow-sm task-bar touch-none z-10" + (isNarrow ? " hide-bullet" : "")}
+          data-taskid={t.id}
           style={{ left:g.left, width:g.width, top:gap/2, height:rowHeight-gap, backgroundColor:t.color, '--task-font': fontPx }}
           onDoubleClick={(e)=>{ e.preventDefault(); e.stopPropagation(); lastWasDblClickRef.current = true; setTimeout(()=>{ lastWasDblClickRef.current = false; },0); onToggle && onToggle(); }}
           onClick={(e)=>{ if(dragHappenedRef.current){ dragHappenedRef.current=false; return; } if(lastWasDblClickRef.current){ lastWasDblClickRef.current=false; return; } setSelectedTaskId(t.id); }}
           onPointerDown={(e)=>{ if(!draggable || e.button!==0 || e.detail>1 || e.target.closest('[data-no-drag]')) return; e.stopPropagation(); startDrag(e,t,'move',rowHeight,g); }}
+          title={t.lastBy ? `Dernière modification par ${t.lastBy}` : undefined}
         >
           <div className="flex h-full items-center gap-1 pl-1 pr-2 text-slate-700" style={{fontSize:'var(--task-font)'}}>
             {onToggle && (
@@ -616,6 +733,26 @@ function PlannerApp(){
     );
   }
 
+  const gridCols = `repeat(${visibleWeeks.length}, ${colW}px)`;
+  const headerBar = (
+    <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90">
+      <div style={{display:'grid', gridTemplateColumns:gridCols}}>
+        {monthSegments.map((m,i)=>(
+          <div key={`${m.label}-${i}`} className="flex items-center justify-center border-r border-slate-100 px-2 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600" style={{gridColumn:`span ${m.span} / span ${m.span}`}}>
+            {m.label}
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-slate-100" style={{display:'grid', gridTemplateColumns:gridCols}}>
+        {visibleWeeks.map((w,i)=>(
+          <div key={i} className="flex items-center justify-center border-r border-slate-100 px-1 py-1 text-[10px] text-slate-500" title={`${fmtDM.format(w)} → ${fmtDM.format(new Date(w.getTime()+MS_DAY*6))}`}>
+            S{String(getISOWeek(w)).padStart(2,'0')}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-50 to-slate-100 text-slate-900">
       <div
@@ -629,15 +766,35 @@ function PlannerApp(){
         }}
       >
         {/* Top bar sur 2 colonnes */}
-        <div style={{ gridColumn:'1 / -1', gridRow:1 }} className="flex items-center justify-between">
+        <div style={{ gridColumn:'1 / -1', gridRow:1 }} className="flex items-center justify-between gap-3">
           <button
             onClick={() => setPanelOpen(v => !v)}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
           >
             <span style={{fontSize:18}}>☰</span> Planificateur
           </button>
-          <h1 className="text-lg font-semibold tracking-tight">Planning D.U 17</h1>
-          <img src="logo.png" alt="Logo" className="h-12 w-auto" />
+
+          {/* Présence (utilisateurs en ligne) */}
+          <div className="flex items-center gap-2 flex-1 justify-center">
+            {presence.map(p=>(
+              <span key={p.id}
+                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
+                style={{ borderColor:p.color, color:p.color }}
+                title={p.pseudo}
+              >
+                <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor:p.color }}></span>
+                {p.pseudo}
+              </span>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500" title="Votre identité">
+              {IDENTITY.pseudo}
+            </span>
+            <span className="inline-block h-3 w-3 rounded-full" style={{backgroundColor:IDENTITY.color}} title={IDENTITY.color}></span>
+            <img src="logo.png" alt="Logo" className="h-12 w-auto" />
+          </div>
         </div>
 
         {/* Gantt gauche, ligne 2 */}
@@ -648,7 +805,7 @@ function PlannerApp(){
                 <button
                   className="rounded border border-slate-300 bg-white px-1 text-[10px] hover:bg-slate-50"
                   title="Retirer de la sous-frise"
-                  onClick={() => setTasks(prev => prev.map(x => x.id === selectedTask.id ? { ...x, parentId: null } : x))}
+                  onClick={() => setTasks(prev => prev.map(x => x.id === selectedTask.id ? { ...x, parentId: null, lastBy: IDENTITY.pseudo } : x))}
                 >↶</button>
               )}
               <button
@@ -663,13 +820,12 @@ function PlannerApp(){
             ref={containerRef}
             className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm h-full max-h-full flex flex-col min-h-0"
           >
-            {visibleWeeks.length === 0 ? null : header}
+            {visibleWeeks.length === 0 ? null : headerBar}
 
             <div className="min-h-0 flex-1 overflow-auto" ref={scrollRef}>
             {/* Lignes dynamiques */}
             {layoutRows.map((row,i)=>{
               if(row.type==='main'){
-                // toutes les tâches top-level de cette rangée
                 const rowTasks = filteredTop.filter(t => (t.row||0)===row.row);
                 return (
                   <div key={`main-${i}`} className="relative border-b border-slate-100" style={{ display:'grid', gridTemplateColumns:gridCols, height: ROW_H }}>
@@ -687,7 +843,7 @@ function PlannerApp(){
                 );
               }
 
-              // Sous-frise (un seul bloc, hauteur = lanes * SUB_ROW_H)
+              // Sous-frise
               const parent = tasks.find(t=>t.id===row.parentId);
               if(!parent) return null;
               const children = tasks.filter(t=>t.parentId===row.parentId);
@@ -710,7 +866,7 @@ function PlannerApp(){
                       </div>
                     </div>
                   ))}
-                  {/* sous-tâches (empilées par lane) */}
+                  {/* sous-tâches */}
                   {packed.placed.map(p=>(
                     <div key={p.t.id} className="pointer-events-none absolute left-0 top-0 w-full" style={{ height: SUB_ROW_H, transform:`translateY(${p.lane*SUB_ROW_H}px)` }}>
                       <TaskBar t={p.t} draggable={true} rowHeight={SUB_ROW_H} gap={SUB_ROW_GAP} />
@@ -723,7 +879,7 @@ function PlannerApp(){
         </div>
       </div>
 
-        {/* Notes droite, ligne 2 */}
+        {/* Notes droite */}
         {notesOpen && (
           <aside
           className="h-full border-l border-slate-200 bg-white rounded-2xl shadow-sm flex flex-col min-h-0"
