@@ -657,29 +657,6 @@ function PlannerApp(){
     };
     setTasks(prev=>[...prev, t]);
   }
-
-  /* --------- Rendu --------- */
-
-  const gridCols = `repeat(${visibleWeeks.length}, ${colW}px)`;
-  const header = (
-    <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/90">
-      <div style={{display:'grid', gridTemplateColumns:gridCols}}>
-        {monthSegments.map((m,i)=>(
-          <div key={`${m.label}-${i}`} className="flex items-center justify-center border-r border-slate-100 px-2 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600" style={{gridColumn:`span ${m.span} / span ${m.span}`}}>
-            {m.label}
-          </div>
-        ))}
-      </div>
-      <div className="border-t border-slate-100" style={{display:'grid', gridTemplateColumns:gridCols}}>
-        {visibleWeeks.map((w,i)=>(
-          <div key={i} className="flex items-center justify-center border-r border-slate-100 px-1 py-1 text-[10px] text-slate-500" title={`${fmtDM.format(w)} → ${fmtDM.format(new Date(w.getTime()+MS_DAY*6))}`}>
-            S{String(getISOWeek(w)).padStart(2,'0')}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
   function TaskBar({t, draggable=true, onToggle, isExpanded=false, rowHeight=ROW_H, gap=ROW_GAP}){
     const g = taskGridInfo(t, visibleWeeks, colW);
     const isNarrow = g.width < BULLET_HIDE_W;
@@ -743,6 +720,7 @@ function PlannerApp(){
       </div>
     );
   }
+  /* --------- Rendu --------- */
 
   const gridCols = `repeat(${visibleWeeks.length}, ${colW}px)`;
   const headerBar = (
