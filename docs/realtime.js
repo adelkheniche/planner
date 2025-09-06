@@ -5,7 +5,7 @@
    - Expose une API globale window.RT pour brancher votre UI.
 */
 
-import { PALETTE, NAMES, ID_KEY } from "./identity.js";
+const { PALETTE, NAMES, ID_KEY } = window.Identity;
 
 (() => {
   // ─────────────────────────────────────────────────────────────────────────────

@@ -16,6 +16,10 @@
     <!-- Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+    <!-- Local helpers -->
+    <script src="identity.js"></script>
+    <script src="realtime.js"></script>
+
     <!-- Markdown parser -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
@@ -32,12 +36,12 @@
   </head>
     <body>
        <div id="root"></div>
-      <script type="text/babel" data-presets="env,react" data-type="module">
+      <script type="text/babel" data-presets="env,react">
 /* ===========================================================
    GANTT collaboratif (presence + broadcast + BDD realtime)
    =========================================================== */
 
-import { PALETTE, NAMES, ID_KEY } from "./identity.js";
+const { PALETTE, NAMES, ID_KEY } = window.Identity;
 
 const { useEffect, useMemo, useRef, useState } = React;
 
