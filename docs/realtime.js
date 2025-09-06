@@ -67,13 +67,19 @@ const CFG = {
   const sb = window.supabase.createClient(CFG.url, CFG.anonKey);
 
   // Identité “anonyme” locale (mémoire navigateur)
-  const stored = JSON.parse(localStorage.getItem("planner_identity") || "{}");
-  const identity = {
-    id: stored.id || uuid(),
-    pseudo: stored.pseudo || prompt("Votre pseudo ?") || ("user-" + Math.floor(Math.random()*1000)),
-    color: stored.color || prompt("Votre couleur hex (ex: #1e90ff) ?") || "#1e90ff"
-  };
-  localStorage.setItem("planner_identity", JSON.stringify(identity));
+  const PALETTE = ["#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9","#ef4444","#22c55e","#f59e0b","#64748b","#d946ef","#14b8a6","#a16207"];
+  const NAMES = ["Arthur","Lancelot","Perceval","Karadoc","Bohort","Léodagan","Séli","Guenièvre","Merlin","Mevanwi","Yvain","Gauvain"];
+  const ID_KEY = "planner_identity_v2";
+  let identity = null;
+  try {
+    identity = JSON.parse(localStorage.getItem(ID_KEY) || "null");
+  } catch {}
+  if (!identity) {
+    const pseudo = NAMES[Math.floor(Math.random() * NAMES.length)];
+    const color = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+    identity = { id: uuid(), pseudo, color };
+    localStorage.setItem(ID_KEY, JSON.stringify(identity));
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   //  CANAL TEMPS RÉEL (Presence + Broadcast)
