@@ -11,9 +11,9 @@
   // ─────────────────────────────────────────────────────────────────────────────
 const SUPABASE_URL = "https://kadoikpkjmkchabvnuqs.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZG9pa3Bram1rY2hhYnZudXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMzEwNDIsImV4cCI6MjA3MDkwNzA0Mn0.q28StZ8nsrbck2Xx6xBCfpgdfLotxne3cyWc6-o_FZM";
-const DOC_SLUG = "main";
 const ROOM = "planner_room_main";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const SCHEMA = "public";
+const TABLE = "blocks";
 
   // ─────────────────────────────────────────────────────────────────────────────
   //  OUTILS
