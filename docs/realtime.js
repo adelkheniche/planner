@@ -9,13 +9,13 @@
   // ─────────────────────────────────────────────────────────────────────────────
   //  CONFIG À RENSEIGNER
   // ─────────────────────────────────────────────────────────────────────────────
-const SUPABASE_URL = "https://kadoikpkjmkchabvnuqs.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZG9pa3Bram1rY2hhYnZudXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMzEwNDIsImV4cCI6MjA3MDkwNzA0Mn0.q28StZ8nsrbck2Xx6xBCfpgdfLotxne3cyWc6-o_FZM";
-const DOC_SLUG = "main";
-const ROOM = "planner_room_main";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-const SCHEMA = "public";
-const TABLE = "blocks";
+const CFG = {
+  url: "https://kadoikpkjmkchabvnuqs.supabase.co",
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZG9pa3Bram1rY2hhYnZudXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMzEwNDIsImV4cCI6MjA3MDkwNzA0Mn0.q28StZ8nsrbck2Xx6xBCfpgdfLotxne3cyWc6-o_FZM",
+  room: "planner_room_main",
+  schema: "public",
+  table: "blocks"
+};
 
   // ─────────────────────────────────────────────────────────────────────────────
   //  OUTILS
@@ -64,7 +64,7 @@ const TABLE = "blocks";
     console.error("[RT] Supabase JS v2 non chargé (CDN).");
     return;
   }
-  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const sb = window.supabase.createClient(CFG.url, CFG.anonKey);
 
   // Identité “anonyme” locale (mémoire navigateur)
   const stored = JSON.parse(localStorage.getItem("planner_identity") || "{}");
@@ -78,7 +78,7 @@ const TABLE = "blocks";
   // ─────────────────────────────────────────────────────────────────────────────
   //  CANAL TEMPS RÉEL (Presence + Broadcast)
   // ─────────────────────────────────────────────────────────────────────────────
-  const channel = sb.channel(ROOM, {
+  const channel = sb.channel(CFG.room, {
     config: {
       presence: { key: identity.id }
     }
@@ -112,10 +112,10 @@ const TABLE = "blocks";
   // ─────────────────────────────────────────────────────────────────────────────
   //  CHANGEMENTS BDD (INSERT/UPDATE/DELETE)
   // ─────────────────────────────────────────────────────────────────────────────
-  const dbChannel = sb.channel("db-" + ROOM)
+  const dbChannel = sb.channel("db-" + CFG.room)
     .on(
       "postgres_changes",
-      { event: "*", schema: SCHEMA, table: TABLE },
+      { event: "*", schema: CFG.schema, table: CFG.table },
       (payload) => {
         const { eventType, new: row, old: oldRow } = payload;
         hooks.onDbChange(eventType, row, oldRow);
@@ -129,7 +129,7 @@ const TABLE = "blocks";
   const API = {
     // Récupération initiale
     async fetchAll(where = {}) {
-      let query = sb.from(TABLE).select("*").order("day", { ascending: true }).order("starts_at", { ascending: true });
+      let query = sb.from(CFG.table).select("*").order("day", { ascending: true }).order("starts_at", { ascending: true });
       // Filtres simples { day, lane, ... } si vous voulez
       Object.entries(where).forEach(([k, v]) => { query = query.eq(k, v); });
       const { data, error } = await query;
@@ -140,13 +140,13 @@ const TABLE = "blocks";
     // CRUD
     async createBlock(block) {
       const row = { ...block, last_modified_by: identity.pseudo };
-      const { data, error } = await sb.from(TABLE).insert(row).select().single();
+      const { data, error } = await sb.from(CFG.table).insert(row).select().single();
       if (error) throw error;
       return data;
     },
 
     async updateBlock(id, patch) {
-      const { data, error } = await sb.from(TABLE)
+      const { data, error } = await sb.from(CFG.table)
         .update({ ...patch, last_modified_by: identity.pseudo })
         .eq("id", id)
         .select()
@@ -156,7 +156,7 @@ const TABLE = "blocks";
     },
 
     async deleteBlock(id) {
-      const { error } = await sb.from(TABLE).delete().eq("id", id);
+      const { error } = await sb.from(CFG.table).delete().eq("id", id);
       if (error) throw error;
       return true;
     },

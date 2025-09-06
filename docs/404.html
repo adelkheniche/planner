@@ -40,11 +40,18 @@
 const { useEffect, useMemo, useRef, useState } = React;
 
 /* ---------- Supabase ---------- */
-const SUPABASE_URL = "https://kadoikpkjmkchabvnuqs.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZG9pa3Bram1rY2hhYnZudXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMzEwNDIsImV4cCI6MjA3MDkwNzA0Mn0.q28StZ8nsrbck2Xx6xBCfpgdfLotxne3cyWc6-o_FZM";
-const DOC_SLUG = "main";
-const ROOM = "planner_room_main";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const CFG = {
+  url: "https://kadoikpkjmkchabvnuqs.supabase.co",
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZG9pa3Bram1rY2hhYnZudXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMzEwNDIsImV4cCI6MjA3MDkwNzA0Mn0.q28StZ8nsrbck2Xx6xBCfpgdfLotxne3cyWc6-o_FZM",
+  slug: "main",
+  room: "planner_room_main"
+};
+let supabase = null;
+if (window.supabase && typeof window.supabase.createClient === "function") {
+  supabase = window.supabase.createClient(CFG.url, CFG.anonKey);
+} else {
+  console.error("[Planner] Supabase JS v2 non chargé (CDN).");
+}
 
 /* ---------- Identité (pseudo + couleur) ---------- */
 const PALETTE = ["#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9","#ef4444","#22c55e","#f59e0b","#64748b","#d946ef","#14b8a6","#a16207"];
@@ -205,7 +212,8 @@ function PlannerApp(){
 
   // Abonnement presence + broadcast (drag live)
   useEffect(()=>{
-    const ch = supabase.channel(ROOM, { config: { presence: { key: IDENTITY.id } } });
+    if (!supabase) return;
+    const ch = supabase.channel(CFG.room, { config: { presence: { key: IDENTITY.id } } });
 
     ch.on("presence", { event: "sync" }, () => {
       const st = ch.presenceState();
@@ -253,11 +261,12 @@ function PlannerApp(){
 
   /* ---------- Realtime BDD sur planner_state ---------- */
   useEffect(()=>{
+    if (!supabase) return;
     // IMPORTANT : exécuter côté Supabase :
     // ALTER PUBLICATION supabase_realtime ADD TABLE public.planner_state;
-    const ch = supabase.channel("db-planner")
+    const ch = supabase.channel("db-" + CFG.room)
       .on("postgres_changes",
-        { event:"*", schema:"public", table:"planner_state", filter:`slug=eq.${DOC_SLUG}` },
+        { event:"*", schema:"public", table:"planner_state", filter:`slug=eq.${CFG.slug}` },
         (payload) => {
           const row = payload.new || payload.old;
           if (!row || !row.data) return;
@@ -281,12 +290,13 @@ function PlannerApp(){
 
   // synchro initiale depuis BDD
   useEffect(()=>{
+    if (!supabase) return;
     (async ()=>{
       try{
         const { data, error } = await supabase
           .from("planner_state")
           .select("data")
-          .eq("slug", DOC_SLUG)
+          .eq("slug", CFG.slug)
           .maybeSingle();
         if(error) { console.warn("Supabase select error:", error.message); return; }
         if(data?.data){
@@ -303,7 +313,7 @@ function PlannerApp(){
           }
         }
       }catch{}
-    })();
+      })();
   },[]);
 
   // sauvegarde locale
@@ -311,10 +321,11 @@ function PlannerApp(){
 
   // upsert debouncé vers BDD (toutes modifs)
   useEffect(()=>{
+    if (!supabase) return;
     const payload={categories,tasks, last_by: IDENTITY.pseudo};
     const t=setTimeout(async ()=>{
       try{
-        await supabase.from("planner_state").upsert({slug:DOC_SLUG, data:payload, updated_at:new Date().toISOString()});
+        await supabase.from("planner_state").upsert({slug:CFG.slug, data:payload, updated_at:new Date().toISOString()});
       }catch(e){ console.warn("upsert error", e?.message); }
     }, 600);
     return ()=>clearTimeout(t);
