@@ -55,14 +55,15 @@ if (window.supabase && typeof window.supabase.createClient === "function") {
 
 /* ---------- Identité (pseudo + couleur) ---------- */
 const PALETTE = ["#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9","#ef4444","#22c55e","#f59e0b","#64748b","#d946ef","#14b8a6","#a16207"];
+const NAMES = ["Arthur","Lancelot","Perceval","Karadoc","Bohort","Léodagan","Séli","Guenièvre","Merlin","Mevanwi","Yvain","Gauvain"];
 const ID_KEY = "planner_identity_v2";
 let IDENTITY = null;
 try {
   IDENTITY = JSON.parse(localStorage.getItem(ID_KEY) || "null");
 } catch {}
 if (!IDENTITY) {
-  const pseudo = prompt("Votre pseudo ?") || ("user-" + Math.floor(Math.random()*1000));
-  const color  = prompt("Votre couleur hex (ex: #1e90ff) ?") || PALETTE[Math.floor(Math.random()*PALETTE.length)];
+  const pseudo = NAMES[Math.floor(Math.random() * NAMES.length)];
+  const color  = PALETTE[Math.floor(Math.random() * PALETTE.length)];
   const id     = (crypto?.randomUUID && crypto.randomUUID()) || String(Date.now());
   IDENTITY = { id, pseudo, color };
   localStorage.setItem(ID_KEY, JSON.stringify(IDENTITY));
