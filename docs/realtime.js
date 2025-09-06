@@ -9,11 +9,11 @@
   // ─────────────────────────────────────────────────────────────────────────────
   //  CONFIG À RENSEIGNER
   // ─────────────────────────────────────────────────────────────────────────────
-  const SUPABASE_URL = "https://VOTRE_PROJET.supabase.co";     // ← remplacez
-  const SUPABASE_ANON_KEY = "VOTRE_CLE_ANON";                  // ← remplacez
-  const ROOM = "planner_room";                                 // un seul “salon”
-  const TABLE = "blocks";                                      // table Postgres
-  const SCHEMA = "public";                                     // schéma
+const SUPABASE_URL = "https://kadoikpkjmkchabvnuqs.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZG9pa3Bram1rY2hhYnZudXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMzEwNDIsImV4cCI6MjA3MDkwNzA0Mn0.q28StZ8nsrbck2Xx6xBCfpgdfLotxne3cyWc6-o_FZM";
+const DOC_SLUG = "main";
+const ROOM = "planner_room_main";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   // ─────────────────────────────────────────────────────────────────────────────
   //  OUTILS
