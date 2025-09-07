@@ -5,9 +5,8 @@
    - Expose une API globale window.RT pour brancher votre UI.
 */
 
-const { PALETTE, NAMES, ID_KEY } = window.Identity;
-
 (() => {
+  const { PALETTE, NAMES, ID_KEY } = window.Identity;
   // ─────────────────────────────────────────────────────────────────────────────
   //  CONFIG À RENSEIGNER
   // ─────────────────────────────────────────────────────────────────────────────
