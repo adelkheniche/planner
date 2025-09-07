@@ -41,7 +41,7 @@
    GANTT collaboratif (presence + broadcast + BDD realtime)
    =========================================================== */
 
-const { PALETTE, NAMES, ID_KEY } = window.Identity;
+const { PALETTE, NAMES: IDENTITY_NAMES, ID_KEY } = window.Identity;
 
 const { useEffect, useMemo, useRef, useState } = React;
 
@@ -65,7 +65,7 @@ try {
   IDENTITY = JSON.parse(localStorage.getItem(ID_KEY) || "null");
 } catch {}
 if (!IDENTITY) {
-  const pseudo = NAMES[Math.floor(Math.random() * NAMES.length)];
+  const pseudo = IDENTITY_NAMES[Math.floor(Math.random() * IDENTITY_NAMES.length)];
   const color  = PALETTE[Math.floor(Math.random() * PALETTE.length)];
   const id     = (crypto?.randomUUID && crypto.randomUUID()) || String(Date.now());
   IDENTITY = { id, pseudo, color };
