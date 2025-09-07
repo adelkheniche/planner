@@ -209,7 +209,10 @@ function PlannerApp(){
   const [colW,setColW] = useState(COL_W_MIN);
 
   /* ---------- Collaboration: Presence + Broadcast ---------- */
-  const [presence, setPresence] = useState([]);           // [{id,pseudo,color}]
+  // Start with the local identity so the pseudonym is visible even without realtime
+  const [presence, setPresence] = useState([
+    { id: IDENTITY.id, pseudo: IDENTITY.pseudo, color: IDENTITY.color }
+  ]); // [{id,pseudo,color}]
   const chanRef = useRef(null);                           // realtime channel
   const ghostRef = useRef(new Map());                    // taskId -> {from,deltaWeeks,color}
 
@@ -224,6 +227,9 @@ function PlannerApp(){
       for (const [id, arr] of Object.entries(st)) {
         const last = arr[arr.length-1];
         if (last) flat.push({ id, pseudo:last.pseudo, color:last.color });
+      }
+      if (!flat.some(p => p.id === IDENTITY.id)) {
+        flat.push({ id: IDENTITY.id, pseudo: IDENTITY.pseudo, color: IDENTITY.color });
       }
       setPresence(flat);
     });
