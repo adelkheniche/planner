@@ -223,7 +223,8 @@ function PlannerApp(){
 
     const refreshPresence = () => {
       const st = ch.presenceState();
-      const flat = Array.from(st.entries())
+      const entries = st instanceof Map ? Array.from(st.entries()) : Object.entries(st);
+      const flat = entries
         .map(([id, metas]) => {
           const last = metas[metas.length - 1];
           return last ? { id, pseudo: last.pseudo, color: last.color } : null;
