@@ -224,9 +224,10 @@ function PlannerApp(){
     ch.on("presence", { event: "sync" }, () => {
       const st = ch.presenceState();
       const flat = [];
-      for (const [id, arr] of Object.entries(st)) {
-        const last = arr[arr.length-1];
-        if (last) flat.push({ id, pseudo:last.pseudo, color:last.color });
+      for (const [id, info] of Object.entries(st)) {
+        const metas = Array.isArray(info) ? info : (info && info.metas) || [];
+        const last = metas[metas.length - 1];
+        if (last) flat.push({ id, pseudo: last.pseudo, color: last.color });
       }
       if (!flat.some(p => p.id === IDENTITY.id)) {
         flat.push({ id: IDENTITY.id, pseudo: IDENTITY.pseudo, color: IDENTITY.color });
