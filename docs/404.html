@@ -268,7 +268,7 @@ function PlannerApp(){
 
     chanRef.current = ch;
     return () => { try { supabase.removeChannel(ch); } catch {} };
-  }, [colW]);
+  }, []);
 
   /* ---------- Realtime BDD sur planner_state ---------- */
   useEffect(()=>{
