@@ -114,20 +114,24 @@ const CFG = {
     }
   });
 
+  const refreshPresence = () => {
+    // presenceState() => { key: { metas: [...] } }
+    const state = channel.presenceState();
+    const flat = [];
+    for (const [id, info] of Object.entries(state)) {
+      const metas = Array.isArray(info) ? info : (info && info.metas) || [];
+      // on garde la dernière version
+      const st = metas[metas.length - 1];
+      if (st) flat.push({ id, pseudo: st.pseudo, color: st.color });
+    }
+    hooks.onPresence(flat);
+  };
+
   channel
-    // Liste des personnes connectées (sync)
-    .on("presence", { event: "sync" }, () => {
-      // presenceState() => { key: { metas: [...] } }
-      const state = channel.presenceState();
-      const flat = [];
-      for (const [id, info] of Object.entries(state)) {
-        const metas = Array.isArray(info) ? info : (info && info.metas) || [];
-        // on garde la dernière version
-        const st = metas[metas.length - 1];
-        if (st) flat.push({ id, pseudo: st.pseudo, color: st.color });
-      }
-      hooks.onPresence(flat);
-    })
+    // Liste des personnes connectées
+    .on("presence", { event: "sync" }, refreshPresence)
+    .on("presence", { event: "join" }, refreshPresence)
+    .on("presence", { event: "leave" }, refreshPresence)
     // Drag en direct (messages éphémères)
     .on("broadcast", { event: "drag" }, (payload) => {
       const msg = payload.payload;  // { t, blockId, pos, by, color }
