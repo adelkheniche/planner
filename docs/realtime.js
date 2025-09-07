@@ -117,13 +117,16 @@ const CFG = {
   const refreshPresence = () => {
     // presenceState() => { key: { metas: [...] } }
     const state = channel.presenceState();
-    const flat = [];
-    for (const [id, info] of Object.entries(state)) {
-      const metas = Array.isArray(info) ? info : (info && info.metas) || [];
-      // on garde la dernière version
-      const st = metas[metas.length - 1];
-      if (st) flat.push({ id, pseudo: st.pseudo, color: st.color });
-    }
+    const entries = state instanceof Map
+      ? Array.from(state.entries())
+      : Object.entries(state);
+    const flat = entries
+      .map(([id, info]) => {
+        const metas = Array.isArray(info) ? info : (info && info.metas) || [];
+        const st = metas[metas.length - 1];
+        return st ? { id, pseudo: st.pseudo, color: st.color } : null;
+      })
+      .filter(Boolean);
     hooks.onPresence(flat);
   };
 
