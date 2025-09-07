@@ -221,7 +221,7 @@ function PlannerApp(){
     if (!supabase) return;
     const ch = supabase.channel(CFG.room, { config: { presence: { key: IDENTITY.id } } });
 
-    ch.on("presence", { event: "sync" }, () => {
+    const refreshPresence = () => {
       const st = ch.presenceState();
       const flat = [];
       for (const [id, info] of Object.entries(st)) {
@@ -233,7 +233,12 @@ function PlannerApp(){
         flat.push({ id: IDENTITY.id, pseudo: IDENTITY.pseudo, color: IDENTITY.color });
       }
       setPresence(flat);
-    });
+    };
+
+    ch
+      .on("presence", { event: "sync" }, refreshPresence)
+      .on("presence", { event: "join" }, refreshPresence)
+      .on("presence", { event: "leave" }, refreshPresence);
 
     ch.on("broadcast", { event: "drag" }, ({ payload }) => {
       const { t, taskId, from, deltaWeeks=0, by, color } = payload || {};
