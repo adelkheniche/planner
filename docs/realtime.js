@@ -6,7 +6,20 @@
 */
 
 (() => {
-  const { PALETTE, NAMES, ID_KEY } = window.Identity;
+  const DEFAULT_IDENTITY = {
+    PALETTE: [
+      "#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9",
+      "#ef4444","#22c55e","#f59e0b","#64748b","#d946ef",
+      "#14b8a6","#a16207"
+    ],
+    NAMES: [
+      "Arthur","Lancelot","Perceval","Karadoc","Bohort",
+      "Léodagan","Séli","Guenièvre","Merlin","Mevanwi",
+      "Yvain","Gauvain"
+    ],
+    ID_KEY: "planner_identity_v2",
+  };
+  const { PALETTE, NAMES, ID_KEY } = window.Identity || DEFAULT_IDENTITY;
   // ─────────────────────────────────────────────────────────────────────────────
   //  CONFIG À RENSEIGNER
   // ─────────────────────────────────────────────────────────────────────────────
