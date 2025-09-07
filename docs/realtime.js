@@ -128,14 +128,10 @@ const CFG = {
   });
 
   const refreshPresence = () => {
-    // presenceState() => { key: { metas: [...] } }
+    // presenceState() => Map(key => [metas])
     const state = channel.presenceState();
-    const entries = state instanceof Map
-      ? Array.from(state.entries())
-      : Object.entries(state);
-    const flat = entries
-      .map(([id, info]) => {
-        const metas = Array.isArray(info) ? info : (info && info.metas) || [];
+    const flat = Array.from(state.entries())
+      .map(([id, metas]) => {
         const st = metas[metas.length - 1];
         return st ? { id, pseudo: st.pseudo, color: st.color } : null;
       })

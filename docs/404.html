@@ -223,10 +223,9 @@ function PlannerApp(){
 
     ch.on("presence", { event: "sync" }, () => {
       const st = ch.presenceState();
-      const entries = st instanceof Map ? Array.from(st.entries()) : Object.entries(st);
-      const flat = entries
-        .map(([id, arr]) => {
-          const last = Array.isArray(arr) ? arr[arr.length - 1] : (arr && arr.metas ? arr.metas[arr.metas.length - 1] : null);
+      const flat = Array.from(st.entries())
+        .map(([id, metas]) => {
+          const last = metas[metas.length - 1];
           return last ? { id, pseudo: last.pseudo, color: last.color } : null;
         })
         .filter(Boolean);
