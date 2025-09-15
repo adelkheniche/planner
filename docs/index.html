@@ -168,6 +168,23 @@ function fontPxFor(width, title){
   return Math.max(8, Math.min(12, px));
 }
 
+function readableTextColor(color, light="var(--color-text-strong)", dark="var(--color-white)"){
+  if(!color || typeof color !== "string") return light;
+  let hex = color.trim();
+  if(hex.startsWith("#")) hex = hex.slice(1);
+  if(hex.length === 3) hex = hex.split("").map(c=>c+c).join("");
+  if(hex.length !== 6 || /[^0-9a-f]/i.test(hex)) return light;
+  const r = parseInt(hex.slice(0,2), 16);
+  const g = parseInt(hex.slice(2,4), 16);
+  const b = parseInt(hex.slice(4,6), 16);
+  const channels = [r,g,b].map(v => {
+    const c = v/255;
+    return c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4);
+  });
+  const luminance = 0.2126*channels[0] + 0.7152*channels[1] + 0.0722*channels[2];
+  return luminance > 0.55 ? light : dark;
+}
+
 /* ---------- Composant ---------- */
 function PlannerApp(){
   const weeks = useMemo(()=>eachWeekOfInterval(TIMELINE_START, TIMELINE_END),[]);
@@ -628,7 +645,7 @@ function PlannerApp(){
     startISO: toISODate(TIMELINE_START),
     endISO: toISODate(new Date(TIMELINE_START.getTime()+7*MS_DAY)),
     range: `${toISODate(TIMELINE_START)} → ${toISODate(new Date(TIMELINE_START.getTime()+7*MS_DAY))}`,
-    color: "#2563eb",
+    color: "#451968",
     categoryId: "",
     newCategoryName: ""
   });
@@ -677,6 +694,7 @@ function PlannerApp(){
     const g = taskGridInfo(t, visibleWeeks, colW);
     const isNarrow = g.width < BULLET_HIDE_W;
     const fontPx = fontPxFor(g.width, t.title);
+    const textColor = useMemo(()=>readableTextColor(t.color), [t.color]);
     const barRef = useRef(null);
     useEffect(()=>{
       const el = barRef.current; if(!el) return;
@@ -703,7 +721,7 @@ function PlannerApp(){
           onPointerDown={(e)=>{ if(!draggable || e.button!==0 || e.detail>1 || e.target.closest('[data-no-drag]')) return; e.stopPropagation(); startDrag(e,t,'move',rowHeight,g); }}
           title={t.lastBy ? `Dernière modification par ${t.lastBy}` : undefined}
         >
-          <div className="flex h-full items-center gap-1 pl-1 pr-2 text-slate-700" style={{fontSize:'var(--task-font)'}}>
+          <div className="flex h-full items-center gap-1 pl-1 pr-2" style={{fontSize:'var(--task-font)', color:textColor}}>
             {onToggle && (
               <button
                 data-no-drag
