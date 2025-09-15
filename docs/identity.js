@@ -1,9 +1,9 @@
 // Global identity constants used by the planner UI
 window.Identity = {
   PALETTE: [
-    "#2563eb","#16a34a","#ea580c","#9333ea","#0ea5e9",
-    "#ef4444","#22c55e","#f59e0b","#64748b","#d946ef",
-    "#14b8a6","#a16207"
+    "#451968","#5E2A7A","#782F3E","#8F4553","#430942",
+    "#320731","#BAB4B8","#D9D3D8","#6A4A68","#9A6F92",
+    "#200319","#362138"
   ],
   NAMES: [
     "Arthur","Lancelot","Perceval","Karadoc","Bohort",
