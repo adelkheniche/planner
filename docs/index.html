@@ -26,7 +26,13 @@
     <link rel="stylesheet" href="faclab.css" />
     <style>
       html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-      .task-bar { font-size: var(--task-font,11px); transition: box-shadow .08s ease; }
+      .task-bar {
+        font-size: var(--task-font,11px);
+        line-height: 1.15;
+        border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+        transition: box-shadow .08s ease, transform .08s ease;
+      }
+      .task-bar:hover { box-shadow: 0 2px 8px rgba(0,0,0,.18); }
       .task-bar.is-dragging { opacity:0.9; z-index:50; cursor:grabbing; }
       .task-bar.hide-bullet .bullet { display:none; }
       .task-bar.remote-moving { outline: 2px dashed currentColor; }
@@ -75,13 +81,13 @@ if (!IDENTITY) {
 const WEEK_STARTS_ON = 1;             // lundi
 const MS_DAY = 24*60*60*1000;
 const COL_W_MIN = 44;                 // largeur minimale d’une semaine (px)
-const ROW_H = 26;                     // hauteur d’une ligne (px)
-const ROW_GAP = 2;                    // petit padding vertical dans une ligne
-const SUB_ROW_H = 22;                 // hauteur d'une voie dans la sous-frise
-const SUB_ROW_GAP = 2;                // marge interne des sous-barres
+const ROW_H = 34;                     // hauteur d’une ligne (px)
+const ROW_GAP = 4;                    // petit padding vertical dans une ligne
+const SUB_ROW_H = 28;                 // hauteur d'une voie dans la sous-frise
+const SUB_ROW_GAP = 4;                // marge interne des sous-barres
 const DRAG_THRESHOLD_PX = 6;
 const DRAG_THRESHOLD_MS = 120;
-const BULLET_HIDE_W = 48;
+const BULLET_HIDE_W = 72;
 const fmtMonthYear = new Intl.DateTimeFormat("fr-FR",{ month:"long", year:"numeric" });
 const fmtDM = new Intl.DateTimeFormat("fr-FR",{ day:"numeric", month:"short" });
 
@@ -713,7 +719,7 @@ function PlannerApp(){
       <div className="pointer-events-none absolute left-0 top-0 w-full" style={{height: rowHeight}}>
         <div
           ref={barRef}
-          className={"pointer-events-auto absolute select-none rounded-lg shadow-sm task-bar touch-none z-10" + (isNarrow ? " hide-bullet" : "")}
+          className={"pointer-events-auto absolute select-none rounded-xl shadow task-bar touch-none z-10" + (isNarrow ? " hide-bullet" : "")}
           data-taskid={t.id}
           style={{ left:g.left, width:g.width, top:gap/2, height:rowHeight-gap, backgroundColor:t.color, '--task-font': fontPx }}
           onDoubleClick={(e)=>{ e.preventDefault(); e.stopPropagation(); lastWasDblClickRef.current = true; setTimeout(()=>{ lastWasDblClickRef.current = false; },0); onToggle && onToggle(); }}
@@ -721,12 +727,12 @@ function PlannerApp(){
           onPointerDown={(e)=>{ if(!draggable || e.button!==0 || e.detail>1 || e.target.closest('[data-no-drag]')) return; e.stopPropagation(); startDrag(e,t,'move',rowHeight,g); }}
           title={t.lastBy ? `Dernière modification par ${t.lastBy}` : undefined}
         >
-          <div className="flex h-full items-center gap-1 pl-1 pr-2" style={{fontSize:'var(--task-font)', color:textColor}}>
+          <div className="flex h-full items-center gap-2 pl-2 pr-3" style={{fontSize:'var(--task-font)', color:textColor}}>
             {onToggle && (
               <button
                 data-no-drag
                 onClick={(e)=>{e.stopPropagation(); onToggle();}}
-                className="w-3 flex-none text-[10px]"
+                className="flex h-5 w-5 flex-none items-center justify-center rounded bg-white/30 text-[12px] leading-none hover:bg-white/45"
                 title={isExpanded ? 'Replier' : 'Déplier'}
               >{isExpanded ? '▾' : '▸'}</button>
             )}
@@ -739,13 +745,13 @@ function PlannerApp(){
               <div
                 data-handle="left"
                 onPointerDown={(e)=>{ e.stopPropagation(); startDrag(e,t,'left',rowHeight,g); }}
-                className="absolute inset-y-0 left-0 w-2 cursor-w-resize touch-none"
+                className="absolute inset-y-0 left-0 w-3 cursor-w-resize touch-none"
                 title="Ajuster début"
               ></div>
               <div
                 data-handle="right"
                 onPointerDown={(e)=>{ e.stopPropagation(); startDrag(e,t,'right',rowHeight,g); }}
-                className="absolute inset-y-0 right-0 w-2 cursor-e-resize touch-none"
+                className="absolute inset-y-0 right-0 w-3 cursor-e-resize touch-none"
                 title="Ajuster fin"
               ></div>
             </>
