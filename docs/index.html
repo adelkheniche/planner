@@ -51,15 +51,13 @@ const { PALETTE, NAMES: IDENTITY_NAMES, ID_KEY } = window.Identity;
 const { useEffect, useMemo, useRef, useState } = React;
 
 /* ---------- Supabase ---------- */
-const CFG = {
+const SUPABASE_CFG = {
   url: "https://kadoikpkjmkchabvnuqs.supabase.co",
-  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZG9pa3Bram1rY2hhYnZudXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMzEwNDIsImV4cCI6MjA3MDkwNzA0Mn0.q28StZ8nsrbck2Xx6xBCfpgdfLotxne3cyWc6-o_FZM",
-  slug: "main",
-  room: "planner_room_main"
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZG9pa3Bram1rY2hhYnZudXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMzEwNDIsImV4cCI6MjA3MDkwNzA0Mn0.q28StZ8nsrbck2Xx6xBCfpgdfLotxne3cyWc6-o_FZM"
 };
 let supabase = null;
 if (window.supabase && typeof window.supabase.createClient === "function") {
-  supabase = window.supabase.createClient(CFG.url, CFG.anonKey);
+  supabase = window.supabase.createClient(SUPABASE_CFG.url, SUPABASE_CFG.anonKey);
 } else {
   console.error("[Planner] Supabase JS v2 non chargé (CDN).");
 }
@@ -108,8 +106,31 @@ function clampDate(d,minD,maxD){ if(d<minD) return new Date(minD); if(d>maxD) re
 function toISODate(d){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,"0"); const dd=String(d.getDate()).padStart(2,"0"); return `${y}-${m}-${dd}`; }
 function addWeeksISO(iso,n,minD,maxD){ const d=new Date(iso); d.setDate(d.getDate()+7*n); return toISODate(clampDate(d,minD,maxD)); }
 function getISOWeek(date){ const d=new Date(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate())); const dayNum=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-dayNum); const yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1)); return Math.ceil(((d-yearStart)/MS_DAY+1)/7); }
-const TIMELINE_START = startOfWeek(new Date(2025,8,1));
-const TIMELINE_END   = endOfWeek(new Date(2026,0,31));
+const BASE_TIMELINE_START = startOfWeek(new Date(2025,8,1));
+const BASE_TIMELINE_END   = endOfWeek(new Date(2026,0,31));
+const SECOND_TAB_START = new Date(2026,1,12);
+const TIMELINE_SPAN_MS = BASE_TIMELINE_END.getTime() - BASE_TIMELINE_START.getTime();
+
+const PLAN_CONFIGS = {
+  main: {
+    key: "main",
+    label: "Session actuelle",
+    slug: "main",
+    room: "planner_room_main",
+    lsKey: "gantt-sept2025-fev2026",
+    timelineStart: BASE_TIMELINE_START,
+    timelineEnd: BASE_TIMELINE_END
+  },
+  fev12: {
+    key: "fev12",
+    label: "Dès le 12 février",
+    slug: "fev12",
+    room: "planner_room_fev12",
+    lsKey: "gantt-fev2026-juil2026",
+    timelineStart: startOfWeek(SECOND_TAB_START),
+    timelineEnd: endOfWeek(new Date(SECOND_TAB_START.getTime() + TIMELINE_SPAN_MS))
+  }
+};
 
 function eachWeekOfInterval(start,end){
   const weeks=[]; let cur=startOfWeek(start); const endW=startOfWeek(end);
@@ -118,9 +139,8 @@ function eachWeekOfInterval(start,end){
 }
 
 /* ---------- Local cache + transfert ---------- */
-const LS_KEY = "gantt-sept2025-fev2026";
-function loadState(){ try{ const raw=localStorage.getItem(LS_KEY); return raw?JSON.parse(raw):null; }catch{ return null; } }
-function saveState(state){ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch{} }
+function loadState(storageKey){ try{ const raw=localStorage.getItem(storageKey); return raw?JSON.parse(raw):null; }catch{ return null; } }
+function saveState(storageKey, state){ try{ localStorage.setItem(storageKey, JSON.stringify(state)); }catch{} }
 function b64Encode(str){ try{ return btoa(unescape(encodeURIComponent(str))); }catch{ return btoa(str);} }
 function b64Decode(str){ try{ return decodeURIComponent(escape(atob(str))); }catch{ return atob(str);} }
 (function importFromHash(){
@@ -128,29 +148,29 @@ function b64Decode(str){ try{ return decodeURIComponent(escape(atob(str))); }cat
     const h=location.hash;
     if(h && h.startsWith("#s=")){
       const s=JSON.parse(b64Decode(h.slice(3)));
-      if(s) localStorage.setItem(LS_KEY, JSON.stringify({categories:s.categories||[],tasks:s.tasks||[]}));
+      if(s) localStorage.setItem(PLAN_CONFIGS.main.lsKey, JSON.stringify({categories:s.categories||[],tasks:s.tasks||[]}));
       history.replaceState(null,"", location.pathname+location.search);
     }
   }catch(e){ console.warn("State-from-hash failed", e); }
 })();
 
 /* ---------- Utils Gantt ---------- */
-function weekIndexOf(date, weeks){
-  const s = startOfWeek(clampDate(date, TIMELINE_START, TIMELINE_END));
+function weekIndexOf(date, weeks, minDate, maxDate){
+  const s = startOfWeek(clampDate(date, minDate, maxDate));
   const idx = weeks.findIndex(w=>w.getTime()===s.getTime());
   return idx<0 ? weeks.length-1 : idx;
 }
-function taskGridInfo(task, weeks, colW){
-  const sIdx = weekIndexOf(new Date(task.startISO), weeks);
-  const eIdx = weekIndexOf(new Date(task.endISO),   weeks);
+function taskGridInfo(task, weeks, colW, minDate, maxDate){
+  const sIdx = weekIndexOf(new Date(task.startISO), weeks, minDate, maxDate);
+  const eIdx = weekIndexOf(new Date(task.endISO),   weeks, minDate, maxDate);
   const span = Math.max(1, eIdx - sIdx + 1);
   return { sIdx, eIdx, span, left: sIdx*colW, width: span*colW };
 }
 
 /* ---------- Packing sous-tâches ---------- */
-function packLanes(children, weeks, colW){
+function packLanes(children, weeks, colW, minDate, maxDate){
   const items = children
-    .map(t => ({ t, ...taskGridInfo(t, weeks, colW) }))
+    .map(t => ({ t, ...taskGridInfo(t, weeks, colW, minDate, maxDate) }))
     .sort((a,b) => a.sIdx - b.sIdx || a.eIdx - b.eIdx);
 
   const lanes = []; // chaque lane = dernier eIdx
@@ -193,11 +213,13 @@ function readableTextColor(color, light="var(--color-text-strong)", dark="var(--
 
 /* ---------- Composant ---------- */
 function PlannerApp(){
-  const weeks = useMemo(()=>eachWeekOfInterval(TIMELINE_START, TIMELINE_END),[]);
-  const visibleWeeks = useMemo(
-    ()=>weeks.filter(w=>!(w.getFullYear()===2026 && w.getMonth()===1)),
-    [weeks]
-  );
+  const [activePlanKey,setActivePlanKey] = useState("main");
+  const activePlan = PLAN_CONFIGS[activePlanKey] || PLAN_CONFIGS.main;
+  const TIMELINE_START = activePlan.timelineStart;
+  const TIMELINE_END = activePlan.timelineEnd;
+
+  const weeks = useMemo(()=>eachWeekOfInterval(TIMELINE_START, TIMELINE_END),[TIMELINE_START, TIMELINE_END]);
+  const visibleWeeks = weeks;
   const monthSegments = useMemo(()=>{
     if(visibleWeeks.length===0) return [];
     const segs=[]; let currentLabel=fmtMonthYear.format(new Date(visibleWeeks[0].getTime()+MS_DAY*3)); let span=0;
@@ -209,17 +231,9 @@ function PlannerApp(){
     segs.push({label:currentLabel,span}); return segs;
   },[visibleWeeks]);
 
-  // état initial
-  const initial = loadState();
-  const [categories,setCategories] = useState(initial?.categories || []);
+  const [categories,setCategories] = useState([]);
   // task: {id,title,startISO,endISO,color,categoryId,row,notes[],parentId?,expanded?}
-  const [tasks,setTasks] = useState((initial?.tasks || []).map((t,i)=>({
-    ...t,
-    row: typeof t.row==='number' ? t.row : i,
-    notes: Array.isArray(t.notes) ? t.notes : [],
-    expanded: !!t.expanded,
-    parentId: t.parentId || null
-  })));
+  const [tasks,setTasks] = useState([]);
   const [selectedTaskId,setSelectedTaskId] = useState(null);
   const [newNote,setNewNote] = useState("");
   const dragHappenedRef = useRef(false);
@@ -230,6 +244,49 @@ function PlannerApp(){
   const [panelOpen,setPanelOpen] = useState(false);
   const [notesOpen,setNotesOpen] = useState(true);
   const [colW,setColW] = useState(COL_W_MIN);
+
+  const normalizeTasks = (rawTasks=[]) => rawTasks.map((t,i)=>({
+    ...t,
+    row: typeof t.row==='number' ? t.row : i,
+    notes: Array.isArray(t.notes) ? t.notes : [],
+    expanded: !!t.expanded,
+    parentId: t.parentId || null
+  }));
+
+  const shiftTasksForSecondTab = (sourceTasks=[]) => {
+    const offsetDays = Math.round((PLAN_CONFIGS.fev12.timelineStart.getTime() - PLAN_CONFIGS.main.timelineStart.getTime()) / MS_DAY);
+    return sourceTasks.map(t => {
+      const s = new Date(t.startISO);
+      const e = new Date(t.endISO);
+      s.setDate(s.getDate() + offsetDays);
+      e.setDate(e.getDate() + offsetDays);
+      return {
+        ...t,
+        startISO: toISODate(clampDate(s, PLAN_CONFIGS.fev12.timelineStart, PLAN_CONFIGS.fev12.timelineEnd)),
+        endISO: toISODate(clampDate(e, PLAN_CONFIGS.fev12.timelineStart, PLAN_CONFIGS.fev12.timelineEnd))
+      };
+    });
+  };
+
+  useEffect(()=>{
+    const local = loadState(activePlan.lsKey);
+    if(local){
+      setCategories(local.categories || []);
+      setTasks(normalizeTasks(local.tasks || []));
+      return;
+    }
+    if(activePlan.key === 'fev12'){
+      const mainLocal = loadState(PLAN_CONFIGS.main.lsKey);
+      if(mainLocal?.tasks?.length){
+        setCategories(mainLocal.categories || []);
+        setTasks(normalizeTasks(shiftTasksForSecondTab(mainLocal.tasks || [])));
+        return;
+      }
+    }
+    setCategories([]);
+    setTasks([]);
+    setSelectedTaskId(null);
+  }, [activePlanKey]);
 
   /* ---------- Collaboration: Presence + Broadcast ---------- */
   // Start with the local identity so the pseudonym is visible even without realtime
@@ -242,7 +299,7 @@ function PlannerApp(){
   // Abonnement presence + broadcast (drag live)
   useEffect(()=>{
     if (!supabase) return;
-    const ch = supabase.channel(CFG.room, { config: { presence: { key: IDENTITY.id } } });
+    const ch = supabase.channel(activePlan.room, { config: { presence: { key: IDENTITY.id } } });
 
     const refreshPresence = () => {
       const st = ch.presenceState();
@@ -296,36 +353,28 @@ function PlannerApp(){
 
     chanRef.current = ch;
     return () => { try { supabase.removeChannel(ch); } catch {} };
-  }, []);
+  }, [activePlan.room, colW]);
 
   /* ---------- Realtime BDD sur planner_state ---------- */
   useEffect(()=>{
     if (!supabase) return;
     // IMPORTANT : exécuter côté Supabase :
     // ALTER PUBLICATION supabase_realtime ADD TABLE public.planner_state;
-    const ch = supabase.channel("db-" + CFG.room)
+    const ch = supabase.channel("db-" + activePlan.room)
       .on("postgres_changes",
-        { event:"*", schema:"public", table:"planner_state", filter:`slug=eq.${CFG.slug}` },
+        { event:"*", schema:"public", table:"planner_state", filter:`slug=eq.${activePlan.slug}` },
         (payload) => {
           const row = payload.new || payload.old;
           if (!row || !row.data) return;
           const s = row.data;
           // Recharge l'état reçu (dernière écriture)
           if (s.categories) setCategories(s.categories);
-          if (s.tasks) {
-            setTasks(s.tasks.map((t,i)=>({
-              ...t,
-              row: typeof t.row==='number' ? t.row : i,
-              notes: Array.isArray(t.notes) ? t.notes : [],
-              expanded: !!t.expanded,
-              parentId: t.parentId || null
-            })));
-          }
+          if (s.tasks) setTasks(normalizeTasks(s.tasks));
         }
       )
       .subscribe();
     return ()=>{ try { supabase.removeChannel(ch); } catch {} };
-  }, []);
+  }, [activePlan.room, activePlan.slug]);
 
   // synchro initiale depuis BDD
   useEffect(()=>{
@@ -335,28 +384,45 @@ function PlannerApp(){
         const { data, error } = await supabase
           .from("planner_state")
           .select("data")
-          .eq("slug", CFG.slug)
+          .eq("slug", activePlan.slug)
           .maybeSingle();
         if(error) { console.warn("Supabase select error:", error.message); return; }
         if(data?.data){
           const s=data.data;
           if(s.categories) setCategories(s.categories);
-          if(s.tasks){
-            setTasks(s.tasks.map((t,i)=>({
-              ...t,
-              row: typeof t.row==='number' ? t.row : i,
-              notes: Array.isArray(t.notes) ? t.notes : [],
-              expanded: !!t.expanded,
-              parentId: t.parentId || null
-            })));
+          if(s.tasks) setTasks(normalizeTasks(s.tasks));
+        } else if (activePlan.key === 'fev12') {
+          const mainLocal = loadState(PLAN_CONFIGS.main.lsKey);
+          if(mainLocal?.tasks?.length){
+            const seeded = {
+              categories: mainLocal.categories || [],
+              tasks: shiftTasksForSecondTab(mainLocal.tasks || [])
+            };
+            setCategories(seeded.categories);
+            setTasks(normalizeTasks(seeded.tasks));
+          } else {
+            const mainRemote = await supabase
+              .from("planner_state")
+              .select("data")
+              .eq("slug", PLAN_CONFIGS.main.slug)
+              .maybeSingle();
+            if(mainRemote?.data?.data?.tasks?.length){
+              const source = mainRemote.data.data;
+              const seeded = {
+                categories: source.categories || [],
+                tasks: shiftTasksForSecondTab(source.tasks || [])
+              };
+              setCategories(seeded.categories);
+              setTasks(normalizeTasks(seeded.tasks));
+            }
           }
         }
       }catch{}
       })();
-  },[]);
+  },[activePlan.slug, activePlan.key]);
 
   // sauvegarde locale
-  useEffect(()=>{ saveState({categories,tasks}); },[categories,tasks]);
+  useEffect(()=>{ saveState(activePlan.lsKey, {categories,tasks}); },[activePlan.lsKey, categories,tasks]);
 
   // upsert debouncé vers BDD (toutes modifs)
   useEffect(()=>{
@@ -364,11 +430,11 @@ function PlannerApp(){
     const payload={categories,tasks, last_by: IDENTITY.pseudo};
     const t=setTimeout(async ()=>{
       try{
-        await supabase.from("planner_state").upsert({slug:CFG.slug, data:payload, updated_at:new Date().toISOString()});
+        await supabase.from("planner_state").upsert({slug:activePlan.slug, data:payload, updated_at:new Date().toISOString()});
       }catch(e){ console.warn("upsert error", e?.message); }
     }, 600);
     return ()=>clearTimeout(t);
-  },[categories,tasks]);
+  },[categories,tasks,activePlan.slug]);
 
   /* --------- Filtres de catégories --------- */
   const enabledCategoryIds = useMemo(
@@ -401,7 +467,7 @@ function PlannerApp(){
       for (const p of rowTasks) {
         if (!p.expanded) continue;
         const children = tasks.filter(t => t.parentId === p.id);
-        const { lanesCount } = packLanes(children, visibleWeeks, colW);
+        const { lanesCount } = packLanes(children, visibleWeeks, colW, TIMELINE_START, TIMELINE_END);
         rows.push({ type: 'sub', parentId: p.id, lanesCount });
       }
     }
@@ -697,7 +763,7 @@ function PlannerApp(){
     setTasks(prev=>[...prev, t]);
   }
   function TaskBar({t, draggable=true, onToggle, isExpanded=false, rowHeight=ROW_H, gap=ROW_GAP}){
-    const g = taskGridInfo(t, visibleWeeks, colW);
+    const g = taskGridInfo(t, visibleWeeks, colW, TIMELINE_START, TIMELINE_END);
     const isNarrow = g.width < BULLET_HIDE_W;
     const fontPx = fontPxFor(g.width, t.title);
     const textColor = useMemo(()=>readableTextColor(t.color), [t.color]);
@@ -796,12 +862,29 @@ function PlannerApp(){
       >
         {/* Top bar sur 2 colonnes */}
         <div style={{ gridColumn:'1 / -1', gridRow:1 }} className="flex items-start justify-between gap-3">
-          <button
-            onClick={() => setPanelOpen(v => !v)}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
-          >
-            <span style={{fontSize:18}}>☰</span> Planificateur
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setPanelOpen(v => !v)}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+            >
+              <span style={{fontSize:18}}>☰</span> Planificateur
+            </button>
+            <div className="inline-flex rounded-lg border border-slate-300 bg-white p-1 shadow-sm">
+              {Object.values(PLAN_CONFIGS).map(plan => {
+                const active = plan.key === activePlanKey;
+                return (
+                  <button
+                    key={plan.key}
+                    onClick={() => setActivePlanKey(plan.key)}
+                    className={(active ? 'bg-slate-800 text-white' : 'text-slate-700 hover:bg-slate-100') + " rounded-md px-3 py-1.5 text-xs font-medium"}
+                    title={plan.label}
+                  >
+                    {plan.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2">
@@ -870,7 +953,7 @@ function PlannerApp(){
               const parent = tasks.find(t=>t.id===row.parentId);
               if(!parent) return null;
               const children = tasks.filter(t=>t.parentId===row.parentId);
-              const packed = packLanes(children, visibleWeeks, colW);
+              const packed = packLanes(children, visibleWeeks, colW, TIMELINE_START, TIMELINE_END);
 
               return (
                 <div
