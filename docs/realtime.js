@@ -1,5 +1,5 @@
 /* docs/realtime.js
-   Realtime P2P pour planner statique (Yjs + y-webrtc, sans backend).
+   Realtime pour planner statique (Yjs + providers).
    - État persistant partagé via Y.Map ("planner_state").
    - Presence + événements éphémères via awareness.
    - Expose une API globale window.RT pour brancher une UI non-React.
@@ -21,9 +21,15 @@
   };
   const { PALETTE, NAMES, ID_KEY } = window.Identity || DEFAULT_IDENTITY;
 
+  const q = new URLSearchParams(location.search);
   const CFG = {
     room: "planner_room_main",
-    signaling: ["wss://signaling.yjs.dev"],
+    mode: (q.get("rt") || localStorage.getItem("planner_rt_mode") || "webrtc").toLowerCase(),
+    signaling: (q.get("signaling") || localStorage.getItem("planner_signaling_url") || "wss://signaling.yjs.dev")
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean),
+    websocketEndpoint: q.get("ws") || localStorage.getItem("planner_ws_endpoint") || "",
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
       { urls: "stun:global.stun.twilio.com:3478" }
@@ -48,8 +54,8 @@
     }
   };
 
-  if (!window.Y || !window.WebrtcProvider) {
-    console.error("[RT] Yjs/y-webrtc non chargés.");
+  if (!window.Y || (!window.WebrtcProvider && !window.WebsocketProvider)) {
+    console.error("[RT] Yjs/providers non chargés.");
     return;
   }
 
@@ -64,10 +70,25 @@
   }
 
   const ydoc = new window.Y.Doc();
-  const provider = new window.WebrtcProvider(CFG.room, ydoc, {
-    signaling: CFG.signaling,
-    peerOpts: { config: { iceServers: CFG.iceServers } }
-  });
+  let provider = null;
+
+  if (CFG.mode === "websocket") {
+    if (!window.WebsocketProvider || !CFG.websocketEndpoint) {
+      console.error("[RT] Mode websocket choisi mais endpoint/ws provider manquant.");
+      return;
+    }
+    provider = new window.WebsocketProvider(CFG.websocketEndpoint, CFG.room, ydoc, { connect: true });
+  } else {
+    if (!window.WebrtcProvider) {
+      console.error("[RT] WebrtcProvider indisponible.");
+      return;
+    }
+    provider = new window.WebrtcProvider(CFG.room, ydoc, {
+      signaling: CFG.signaling,
+      peerOpts: { config: { iceServers: CFG.iceServers } }
+    });
+  }
+
   const stateMap = ydoc.getMap("planner_state");
 
   const emitState = () => hooks.onState({

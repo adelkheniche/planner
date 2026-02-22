@@ -13,13 +13,15 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- Yjs + y-webrtc (ESM, exposés sur window pour le script React/Babel) -->
+    <!-- Yjs + providers temps réel (ESM, exposés sur window pour le script React/Babel) -->
     <script type="module">
       import * as Y from "https://esm.sh/yjs";
       import { WebrtcProvider } from "https://esm.sh/y-webrtc";
+      import { WebsocketProvider } from "https://esm.sh/y-websocket";
 
       window.Y = Y;
       window.WebrtcProvider = WebrtcProvider;
+      window.WebsocketProvider = WebsocketProvider;
       window.dispatchEvent(new Event("yjsReady"));
     </script>
 
@@ -57,15 +59,29 @@ const { PALETTE, NAMES: IDENTITY_NAMES, ID_KEY } = window.Identity;
 
 const { useEffect, useMemo, useRef, useState } = React;
 
-/* ---------- Yjs / WebRTC (P2P sans backend) ---------- */
-const YJS_SIGNALING = ["wss://signaling.yjs.dev"];
+/* ---------- Yjs Realtime (WebRTC ou WebSocket managé) ---------- */
+const REALTIME = {
+  roomPrefix: "planner_",
+  mode: (new URLSearchParams(location.search).get("rt") || localStorage.getItem("planner_rt_mode") || "webrtc").toLowerCase(),
+  webrtc: {
+    signaling: (
+      new URLSearchParams(location.search).get("signaling")
+      || localStorage.getItem("planner_signaling_url")
+      || "wss://signaling.yjs.dev"
+    ).split(",").map(s => s.trim()).filter(Boolean)
+  },
+  websocket: {
+    endpoint: new URLSearchParams(location.search).get("ws") || localStorage.getItem("planner_ws_endpoint") || ""
+  }
+};
+
 const YJS_ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:global.stun.twilio.com:3478" }
 ];
 
 const yjsRuntime = {
-  ready: !!(window.Y && window.WebrtcProvider),
+  ready: !!(window.Y && window.WebrtcProvider && window.WebsocketProvider),
   waiters: []
 };
 window.addEventListener("yjsReady", () => {
@@ -76,6 +92,24 @@ window.addEventListener("yjsReady", () => {
 function onYjsReady(cb){
   if(yjsRuntime.ready) cb();
   else yjsRuntime.waiters.push(cb);
+}
+
+function createRealtimeProvider(planRoom, ydoc){
+  const room = `${REALTIME.roomPrefix}${planRoom}`;
+
+  if (REALTIME.mode === "websocket") {
+    const WebsocketProvider = window.WebsocketProvider;
+    const endpoint = REALTIME.websocket.endpoint;
+    if (!WebsocketProvider || !endpoint) return null;
+    return new WebsocketProvider(endpoint, room, ydoc, { connect: true });
+  }
+
+  const WebrtcProvider = window.WebrtcProvider;
+  if (!WebrtcProvider) return null;
+  return new WebrtcProvider(room, ydoc, {
+    signaling: REALTIME.webrtc.signaling,
+    peerOpts: { config: { iceServers: YJS_ICE_SERVERS } }
+  });
 }
 /* ---------- Identité (pseudo + couleur) ---------- */
 let IDENTITY = null;
@@ -326,14 +360,14 @@ function PlannerApp(){
     let dispose = () => {};
     onYjsReady(() => {
       const Y = window.Y;
-      const WebrtcProvider = window.WebrtcProvider;
-      if (!Y || !WebrtcProvider) return;
+      if (!Y) return;
 
       const ydoc = new Y.Doc();
-      const provider = new WebrtcProvider(`planner_${activePlan.room}`, ydoc, {
-        signaling: YJS_SIGNALING,
-        peerOpts: { config: { iceServers: YJS_ICE_SERVERS } }
-      });
+      const provider = createRealtimeProvider(activePlan.room, ydoc);
+      if (!provider) {
+        console.error("[realtime] Provider indisponible. Vérifier planner_rt_mode/planner_ws_endpoint.");
+        return;
+      }
       const ystate = ydoc.getMap('planner_state');
 
       providerRef.current = provider;
