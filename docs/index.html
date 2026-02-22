@@ -13,8 +13,15 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- Supabase (UMD build via CDN) -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <!-- Yjs + y-webrtc (ESM, exposés sur window pour le script React/Babel) -->
+    <script type="module">
+      import * as Y from "https://esm.sh/yjs";
+      import { WebrtcProvider } from "https://esm.sh/y-webrtc";
+
+      window.Y = Y;
+      window.WebrtcProvider = WebrtcProvider;
+      window.dispatchEvent(new Event("yjsReady"));
+    </script>
 
     <!-- Local helpers -->
     <script src="identity.js"></script>
@@ -43,25 +50,33 @@
        <div id="root"></div>
       <script type="text/babel" data-presets="env,react">
 /* ===========================================================
-   GANTT collaboratif (presence + broadcast + BDD realtime)
+   GANTT collaboratif P2P (Yjs + y-webrtc + awareness)
    =========================================================== */
 
 const { PALETTE, NAMES: IDENTITY_NAMES, ID_KEY } = window.Identity;
 
 const { useEffect, useMemo, useRef, useState } = React;
 
-/* ---------- Supabase ---------- */
-const SUPABASE_CFG = {
-  url: "https://kadoikpkjmkchabvnuqs.supabase.co",
-  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImthZG9pa3Bram1rY2hhYnZudXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMzEwNDIsImV4cCI6MjA3MDkwNzA0Mn0.q28StZ8nsrbck2Xx6xBCfpgdfLotxne3cyWc6-o_FZM"
-};
-let supabase = null;
-if (window.supabase && typeof window.supabase.createClient === "function") {
-  supabase = window.supabase.createClient(SUPABASE_CFG.url, SUPABASE_CFG.anonKey);
-} else {
-  console.error("[Planner] Supabase JS v2 non chargé (CDN).");
-}
+/* ---------- Yjs / WebRTC (P2P sans backend) ---------- */
+const YJS_SIGNALING = ["wss://signaling.yjs.dev"];
+const YJS_ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:global.stun.twilio.com:3478" }
+];
 
+const yjsRuntime = {
+  ready: !!(window.Y && window.WebrtcProvider),
+  waiters: []
+};
+window.addEventListener("yjsReady", () => {
+  yjsRuntime.ready = true;
+  yjsRuntime.waiters.splice(0).forEach(fn => fn());
+});
+
+function onYjsReady(cb){
+  if(yjsRuntime.ready) cb();
+  else yjsRuntime.waiters.push(cb);
+}
 /* ---------- Identité (pseudo + couleur) ---------- */
 let IDENTITY = null;
 try {
@@ -288,153 +303,113 @@ function PlannerApp(){
     setSelectedTaskId(null);
   }, [activePlanKey]);
 
-  /* ---------- Collaboration: Presence + Broadcast ---------- */
-  // Start with the local identity so the pseudonym is visible even without realtime
+  /* ---------- Collaboration P2P: Yjs Map + Awareness ---------- */
   const [presence, setPresence] = useState([
     { id: IDENTITY.id, pseudo: IDENTITY.pseudo, color: IDENTITY.color }
-  ]); // [{id,pseudo,color}]
-  const chanRef = useRef(null);                           // realtime channel
-  const ghostRef = useRef(new Map());                    // taskId -> {from,deltaWeeks,color}
+  ]);
+  const providerRef = useRef(null);
+  const ydocRef = useRef(null);
+  const ystateRef = useRef(null);
+  const ghostRef = useRef(new Map());
+  const suppressSyncRef = useRef(false);
 
-  // Abonnement presence + broadcast (drag live)
+  const readSharedState = () => {
+    const stateMap = ystateRef.current;
+    if(!stateMap) return;
+    const nextCategories = stateMap.get('categories');
+    const nextTasks = stateMap.get('tasks');
+    if (Array.isArray(nextCategories)) setCategories(nextCategories);
+    if (Array.isArray(nextTasks)) setTasks(normalizeTasks(nextTasks));
+  };
+
   useEffect(()=>{
-    if (!supabase) return;
-    const ch = supabase.channel(activePlan.room, { config: { presence: { key: IDENTITY.id } } });
+    let dispose = () => {};
+    onYjsReady(() => {
+      const Y = window.Y;
+      const WebrtcProvider = window.WebrtcProvider;
+      if (!Y || !WebrtcProvider) return;
 
-    const refreshPresence = () => {
-      const st = ch.presenceState();
-      const entries = st instanceof Map ? Array.from(st.entries()) : Object.entries(st);
-      const flat = entries
-        .map(([id, metas]) => {
-          const last = metas[metas.length - 1];
-          return last ? { id, pseudo: last.pseudo, color: last.color } : null;
-        })
-        .filter(Boolean);
-      if (!flat.some(p => p.id === IDENTITY.id)) {
-        flat.push({ id: IDENTITY.id, pseudo: IDENTITY.pseudo, color: IDENTITY.color });
-      }
-      setPresence(flat);
-    };
+      const ydoc = new Y.Doc();
+      const provider = new WebrtcProvider(`planner_${activePlan.room}`, ydoc, {
+        signaling: YJS_SIGNALING,
+        peerOpts: { config: { iceServers: YJS_ICE_SERVERS } }
+      });
+      const ystate = ydoc.getMap('planner_state');
 
-    ch
-      .on("presence", { event: "sync" }, refreshPresence)
-      .on("presence", { event: "join" }, refreshPresence)
-      .on("presence", { event: "leave" }, refreshPresence);
+      providerRef.current = provider;
+      ydocRef.current = ydoc;
+      ystateRef.current = ystate;
 
-    ch.on("broadcast", { event: "drag" }, ({ payload }) => {
-      const { t, taskId, from, deltaWeeks=0, by, color } = payload || {};
-      if (!taskId || from === IDENTITY.id) return;
+      if (!ystate.has('categories')) ystate.set('categories', categories);
+      if (!ystate.has('tasks')) ystate.set('tasks', tasks);
 
-      const el = document.querySelector(`.task-bar[data-taskid="${CSS.escape(taskId)}"]`);
-      if (!el) return;
+      const syncFromMap = () => {
+        suppressSyncRef.current = true;
+        try { readSharedState(); } finally {
+          setTimeout(() => { suppressSyncRef.current = false; }, 0);
+        }
+      };
+      ystate.observe(syncFromMap);
+      syncFromMap();
 
-      el.style.color = color || el.style.color;
-      if (t === "start") {
-        el.classList.add("remote-moving");
-        ghostRef.current.set(taskId, { from, deltaWeeks:0, color });
-      } else if (t === "move") {
-        const g = ghostRef.current.get(taskId) || { from, deltaWeeks:0, color };
-        g.deltaWeeks = deltaWeeks;
-        ghostRef.current.set(taskId, g);
-        const px = deltaWeeks * colW;
-        el.style.transform = `translate3d(${px}px,0,0)`;
-      } else if (t === "end") {
-        ghostRef.current.delete(taskId);
-        el.classList.remove("remote-moving");
-        el.style.transform = "";
-      }
+      const awareness = provider.awareness;
+      awareness.setLocalStateField('user', {
+        id: IDENTITY.id,
+        pseudo: IDENTITY.pseudo,
+        color: IDENTITY.color
+      });
+
+      const onAwareness = () => {
+        const states = Array.from(awareness.getStates().values());
+        const peers = states.filter(st => st.user).map(st => st.user);
+        if (!peers.some(p => p.id === IDENTITY.id)) peers.push({ id: IDENTITY.id, pseudo: IDENTITY.pseudo, color: IDENTITY.color });
+        setPresence(peers);
+
+        states.forEach((state) => {
+          const evt = state.dragEvent;
+          if (!evt || evt.from === IDENTITY.id || !evt.taskId) return;
+          const el = document.querySelector(`.task-bar[data-taskid="${CSS.escape(evt.taskId)}"]`);
+          if (!el) return;
+          el.style.color = evt.color || el.style.color;
+          if (evt.t === 'start') {
+            el.classList.add('remote-moving');
+            ghostRef.current.set(evt.taskId, { from: evt.from, deltaWeeks: 0, color: evt.color });
+          } else if (evt.t === 'move') {
+            const deltaWeeks = evt.deltaWeeks || 0;
+            const g = ghostRef.current.get(evt.taskId) || { from: evt.from, deltaWeeks: 0, color: evt.color };
+            g.deltaWeeks = deltaWeeks;
+            ghostRef.current.set(evt.taskId, g);
+            el.style.transform = `translate3d(${deltaWeeks * colW}px,0,0)`;
+          } else if (evt.t === 'end') {
+            ghostRef.current.delete(evt.taskId);
+            el.classList.remove('remote-moving');
+            el.style.transform = '';
+          }
+        });
+      };
+
+      awareness.on('change', onAwareness);
+      onAwareness();
+
+      dispose = () => {
+        awareness.setLocalStateField('dragEvent', null);
+        awareness.off('change', onAwareness);
+        ystate.unobserve(syncFromMap);
+        provider.destroy();
+        ydoc.destroy();
+      };
     });
 
-    ch.subscribe(async (status) => {
-      if (status === "SUBSCRIBED") {
-        await ch.track({ pseudo: IDENTITY.pseudo, color: IDENTITY.color });
-      }
-    });
-
-    chanRef.current = ch;
-    return () => { try { supabase.removeChannel(ch); } catch {} };
+    return () => dispose();
   }, [activePlan.room, colW]);
 
-  /* ---------- Realtime BDD sur planner_state ---------- */
   useEffect(()=>{
-    if (!supabase) return;
-    // IMPORTANT : exécuter côté Supabase :
-    // ALTER PUBLICATION supabase_realtime ADD TABLE public.planner_state;
-    const ch = supabase.channel("db-" + activePlan.room)
-      .on("postgres_changes",
-        { event:"*", schema:"public", table:"planner_state", filter:`slug=eq.${activePlan.slug}` },
-        (payload) => {
-          const row = payload.new || payload.old;
-          if (!row || !row.data) return;
-          const s = row.data;
-          // Recharge l'état reçu (dernière écriture)
-          if (s.categories) setCategories(s.categories);
-          if (s.tasks) setTasks(normalizeTasks(s.tasks));
-        }
-      )
-      .subscribe();
-    return ()=>{ try { supabase.removeChannel(ch); } catch {} };
-  }, [activePlan.room, activePlan.slug]);
-
-  // synchro initiale depuis BDD
-  useEffect(()=>{
-    if (!supabase) return;
-    (async ()=>{
-      try{
-        const { data, error } = await supabase
-          .from("planner_state")
-          .select("data")
-          .eq("slug", activePlan.slug)
-          .maybeSingle();
-        if(error) { console.warn("Supabase select error:", error.message); return; }
-        if(data?.data){
-          const s=data.data;
-          if(s.categories) setCategories(s.categories);
-          if(s.tasks) setTasks(normalizeTasks(s.tasks));
-        } else if (activePlan.key === 'fev12') {
-          const mainLocal = loadState(PLAN_CONFIGS.main.lsKey);
-          if(mainLocal?.tasks?.length){
-            const seeded = {
-              categories: mainLocal.categories || [],
-              tasks: shiftTasksForSecondTab(mainLocal.tasks || [])
-            };
-            setCategories(seeded.categories);
-            setTasks(normalizeTasks(seeded.tasks));
-          } else {
-            const mainRemote = await supabase
-              .from("planner_state")
-              .select("data")
-              .eq("slug", PLAN_CONFIGS.main.slug)
-              .maybeSingle();
-            if(mainRemote?.data?.data?.tasks?.length){
-              const source = mainRemote.data.data;
-              const seeded = {
-                categories: source.categories || [],
-                tasks: shiftTasksForSecondTab(source.tasks || [])
-              };
-              setCategories(seeded.categories);
-              setTasks(normalizeTasks(seeded.tasks));
-            }
-          }
-        }
-      }catch{}
-      })();
-  },[activePlan.slug, activePlan.key]);
-
-  // sauvegarde locale
-  useEffect(()=>{ saveState(activePlan.lsKey, {categories,tasks}); },[activePlan.lsKey, categories,tasks]);
-
-  // upsert debouncé vers BDD (toutes modifs)
-  useEffect(()=>{
-    if (!supabase) return;
-    const payload={categories,tasks, last_by: IDENTITY.pseudo};
-    const t=setTimeout(async ()=>{
-      try{
-        await supabase.from("planner_state").upsert({slug:activePlan.slug, data:payload, updated_at:new Date().toISOString()});
-      }catch(e){ console.warn("upsert error", e?.message); }
-    }, 600);
-    return ()=>clearTimeout(t);
-  },[categories,tasks,activePlan.slug]);
+    if (suppressSyncRef.current) return;
+    const ystate = ystateRef.current;
+    if (!ystate) return;
+    ystate.set('categories', categories);
+    ystate.set('tasks', tasks);
+  }, [categories, tasks]);
 
   /* --------- Filtres de catégories --------- */
   const enabledCategoryIds = useMemo(
@@ -567,9 +542,17 @@ function PlannerApp(){
   }
 
   const sendDragMove = throttle((taskId, dxPx) => {
-    const ch = chanRef.current; if(!ch) return;
+    const provider = providerRef.current;
+    if(!provider) return;
     const deltaWeeks = Math.round(dxPx / colW);
-    ch.send({ type:"broadcast", event:"drag", payload: { t:"move", taskId, from:IDENTITY.id, deltaWeeks, by:IDENTITY.pseudo, color:IDENTITY.color }});
+    provider.awareness.setLocalStateField('dragEvent', {
+      t: 'move',
+      taskId,
+      from: IDENTITY.id,
+      deltaWeeks,
+      by: IDENTITY.pseudo,
+      color: IDENTITY.color
+    });
   }, 40);
 
   function startDrag(e, t, type, rowHeight, g){
@@ -598,10 +581,10 @@ function PlannerApp(){
       node.style.willChange = 'transform,width';
       document.body.classList.add('is-dragging');
     }
-    // broadcast start
-    const ch = chanRef.current;
-    if (ch && type === 'move') {
-      ch.send({ type:"broadcast", event:"drag", payload:{ t:"start", taskId:t.id, from:IDENTITY.id, by:IDENTITY.pseudo, color:IDENTITY.color }});
+    // awareness start
+    const provider = providerRef.current;
+    if (provider && type === 'move') {
+      provider.awareness.setLocalStateField('dragEvent', { t:'start', taskId:t.id, from:IDENTITY.id, by:IDENTITY.pseudo, color:IDENTITY.color });
     }
 
     function onMove(ev){
@@ -635,10 +618,11 @@ function PlannerApp(){
       d.node.style.willChange = '';
       document.body.classList.remove('is-dragging');
 
-      // broadcast end
-      const ch = chanRef.current;
-      if (ch && d.type === 'move') {
-        ch.send({ type:"broadcast", event:"drag", payload:{ t:"end", taskId:d.taskId, from:IDENTITY.id, by:IDENTITY.pseudo, color:IDENTITY.color }});
+      // awareness end
+      const provider = providerRef.current;
+      if (provider && d.type === 'move') {
+        provider.awareness.setLocalStateField('dragEvent', { t:'end', taskId:d.taskId, from:IDENTITY.id, by:IDENTITY.pseudo, color:IDENTITY.color });
+        provider.awareness.setLocalStateField('dragEvent', null);
       }
 
       if(cancel) return;
