@@ -60,18 +60,28 @@ const { PALETTE, NAMES: IDENTITY_NAMES, ID_KEY } = window.Identity;
 const { useEffect, useMemo, useRef, useState } = React;
 
 /* ---------- Yjs Realtime (WebRTC ou WebSocket managé) ---------- */
+const q = new URLSearchParams(location.search);
 const REALTIME = {
   roomPrefix: "planner_",
-  mode: (new URLSearchParams(location.search).get("rt") || localStorage.getItem("planner_rt_mode") || "webrtc").toLowerCase(),
+  mode: (q.get("rt") || localStorage.getItem("planner_rt_mode") || "webrtc").toLowerCase(),
   webrtc: {
     signaling: (
-      new URLSearchParams(location.search).get("signaling")
+      q.get("signaling")
       || localStorage.getItem("planner_signaling_url")
-      || "wss://signaling.yjs.dev"
+      || [
+        "wss://signaling.yjs.dev",
+        "wss://y-webrtc-signaling-eu.herokuapp.com",
+        "wss://y-webrtc-signaling-us.herokuapp.com"
+      ].join(",")
     ).split(",").map(s => s.trim()).filter(Boolean)
   },
   websocket: {
-    endpoint: new URLSearchParams(location.search).get("ws") || localStorage.getItem("planner_ws_endpoint") || ""
+    endpoint: q.get("ws") || localStorage.getItem("planner_ws_endpoint") || "",
+    publicFallback: q.get("publicWs") || localStorage.getItem("planner_public_ws_endpoint") || "wss://demos.yjs.dev"
+  },
+  fallback: {
+    mode: (q.get("fallback") || localStorage.getItem("planner_rt_fallback") || "websocket").toLowerCase(),
+    delayMs: Number(q.get("fallbackDelayMs") || localStorage.getItem("planner_rt_fallback_delay") || 7000)
   }
 };
 
@@ -94,12 +104,17 @@ function onYjsReady(cb){
   else yjsRuntime.waiters.push(cb);
 }
 
-function createRealtimeProvider(planRoom, ydoc){
-  const room = `${REALTIME.roomPrefix}${planRoom}`;
+function resolveWebsocketEndpoint(){
+  return REALTIME.websocket.endpoint || REALTIME.websocket.publicFallback;
+}
 
-  if (REALTIME.mode === "websocket") {
+function createRealtimeProvider(planRoom, ydoc, forceMode=null){
+  const room = `${REALTIME.roomPrefix}${planRoom}`;
+  const mode = forceMode || REALTIME.mode;
+
+  if (mode === "websocket") {
     const WebsocketProvider = window.WebsocketProvider;
-    const endpoint = REALTIME.websocket.endpoint;
+    const endpoint = resolveWebsocketEndpoint();
     if (!WebsocketProvider || !endpoint) return null;
     return new WebsocketProvider(endpoint, room, ydoc, { connect: true });
   }
@@ -108,6 +123,7 @@ function createRealtimeProvider(planRoom, ydoc){
   if (!WebrtcProvider) return null;
   return new WebrtcProvider(room, ydoc, {
     signaling: REALTIME.webrtc.signaling,
+    maxConns: 35,
     peerOpts: { config: { iceServers: YJS_ICE_SERVERS } }
   });
 }
@@ -363,7 +379,7 @@ function PlannerApp(){
       if (!Y) return;
 
       const ydoc = new Y.Doc();
-      const provider = createRealtimeProvider(activePlan.room, ydoc);
+      let provider = createRealtimeProvider(activePlan.room, ydoc);
       if (!provider) {
         console.error("[realtime] Provider indisponible. Vérifier planner_rt_mode/planner_ws_endpoint.");
         return;
@@ -386,7 +402,7 @@ function PlannerApp(){
       ystate.observe(syncFromMap);
       syncFromMap();
 
-      const awareness = provider.awareness;
+      let awareness = provider.awareness;
       awareness.setLocalStateField('user', {
         id: IDENTITY.id,
         pseudo: IDENTITY.pseudo,
@@ -425,7 +441,33 @@ function PlannerApp(){
       awareness.on('change', onAwareness);
       onAwareness();
 
+      const fallbackTimer = (
+        REALTIME.mode === 'webrtc' && REALTIME.fallback.mode === 'websocket'
+      ) ? setTimeout(() => {
+        const peerCount = Array.from(awareness.getStates().values()).filter(st => st.user).length;
+        if (peerCount > 1) return;
+
+        const wsProvider = createRealtimeProvider(activePlan.room, ydoc, 'websocket');
+        if (!wsProvider) return;
+
+        console.warn(`[realtime] Aucun pair WebRTC détecté après ${REALTIME.fallback.delayMs}ms: bascule en WebSocket public.`);
+        awareness.off('change', onAwareness);
+        provider.destroy();
+
+        providerRef.current = wsProvider;
+        provider = wsProvider;
+        awareness = wsProvider.awareness;
+        awareness.setLocalStateField('user', {
+          id: IDENTITY.id,
+          pseudo: IDENTITY.pseudo,
+          color: IDENTITY.color
+        });
+        awareness.on('change', onAwareness);
+        onAwareness();
+      }, Math.max(2000, REALTIME.fallback.delayMs || 7000)) : null;
+
       dispose = () => {
+        if (fallbackTimer) clearTimeout(fallbackTimer);
         awareness.setLocalStateField('dragEvent', null);
         awareness.off('change', onAwareness);
         ystate.unobserve(syncFromMap);

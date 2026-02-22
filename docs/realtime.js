@@ -29,7 +29,10 @@
       .split(",")
       .map(s => s.trim())
       .filter(Boolean),
+    fallbackMode: (q.get("fallback") || localStorage.getItem("planner_rt_fallback") || "websocket").toLowerCase(),
+    fallbackDelayMs: Number(q.get("fallbackDelayMs") || localStorage.getItem("planner_rt_fallback_delay") || 7000),
     websocketEndpoint: q.get("ws") || localStorage.getItem("planner_ws_endpoint") || "",
+    publicWebsocketFallback: q.get("publicWs") || localStorage.getItem("planner_public_ws_endpoint") || "wss://demos.yjs.dev",
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
       { urls: "stun:global.stun.twilio.com:3478" }
@@ -72,12 +75,15 @@
   const ydoc = new window.Y.Doc();
   let provider = null;
 
+  const resolveWsEndpoint = () => CFG.websocketEndpoint || CFG.publicWebsocketFallback;
+
   if (CFG.mode === "websocket") {
-    if (!window.WebsocketProvider || !CFG.websocketEndpoint) {
+    const endpoint = resolveWsEndpoint();
+    if (!window.WebsocketProvider || !endpoint) {
       console.error("[RT] Mode websocket choisi mais endpoint/ws provider manquant.");
       return;
     }
-    provider = new window.WebsocketProvider(CFG.websocketEndpoint, CFG.room, ydoc, { connect: true });
+    provider = new window.WebsocketProvider(endpoint, CFG.room, ydoc, { connect: true });
   } else {
     if (!window.WebrtcProvider) {
       console.error("[RT] WebrtcProvider indisponible.");
@@ -91,12 +97,42 @@
 
   const stateMap = ydoc.getMap("planner_state");
 
+  const enableFallbackToWebsocket = () => {
+    if (
+      CFG.mode !== "webrtc"
+      || CFG.fallbackMode !== "websocket"
+      || !window.WebsocketProvider
+      || !provider?.awareness
+    ) return;
+
+    const fallbackTimer = setTimeout(() => {
+      const peers = Array.from(provider.awareness.getStates().values()).filter(s => s?.user).length;
+      if (peers > 1) return;
+
+      const endpoint = resolveWsEndpoint();
+      if (!endpoint) return;
+
+      console.warn(`[RT] Aucun pair WebRTC détecté après ${CFG.fallbackDelayMs}ms, bascule en WebSocket: ${endpoint}`);
+
+      awareness.off("change", onAwareness);
+      provider.destroy();
+      provider = new window.WebsocketProvider(endpoint, CFG.room, ydoc, { connect: true });
+
+      awareness = provider.awareness;
+      awareness.setLocalStateField("user", identity);
+      awareness.on("change", onAwareness);
+      onAwareness();
+    }, Math.max(2000, CFG.fallbackDelayMs || 7000));
+
+    return () => clearTimeout(fallbackTimer);
+  };
+
   const emitState = () => hooks.onState({
     blocks: stateMap.get("blocks") || []
   });
   stateMap.observe(emitState);
 
-  const awareness = provider.awareness;
+  let awareness = provider.awareness;
   awareness.setLocalStateField("user", identity);
   const onAwareness = () => {
     const states = Array.from(awareness.getStates().values());
@@ -104,6 +140,7 @@
     states.forEach((s) => { if (s.dragEvent && s.dragEvent.from !== identity.id) hooks.onLiveDrag(s.dragEvent); });
   };
   awareness.on("change", onAwareness);
+  const disableFallbackTimer = enableFallbackToWebsocket();
 
   window.RT = {
     getIdentity() { return { ...identity }; },
@@ -134,4 +171,8 @@
       awareness.setLocalStateField("dragEvent", null);
     }
   };
+
+  window.addEventListener("beforeunload", () => {
+    if (typeof disableFallbackTimer === "function") disableFallbackTimer();
+  });
 })();
