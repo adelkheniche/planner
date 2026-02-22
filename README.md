@@ -10,7 +10,7 @@ The planner helps students stay organized by laying out tasks week by week. It d
 
 - **React 18** renders the interactive timeline interface directly in the browser.
 - **Tailwind CSS** provides utility classes for quick styling and layout.
-- **Supabase** offers a lightweight backend to persist tasks and categories.
+- **Yjs + y-webrtc** provide a backendless P2P realtime layer for shared state and live presence.
 - **Babel** transpiles JSX on the fly so that the app can be served as a simple static page.
 
 All client-side dependencies are loaded from CDNs, allowing the planner to run without a build step.
