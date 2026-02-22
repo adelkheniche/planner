@@ -21,14 +21,15 @@ All client-side dependencies are loaded from CDNs, allowing the planner to run w
 
 The app now supports two runtime modes:
 
-- `webrtc` (default): uses y-webrtc + signaling servers.
-- `websocket`: uses y-websocket against your own backend endpoint.
+- `webrtc` (default): uses y-webrtc + multiple public signaling servers.
+- `websocket`: uses y-websocket against your own backend endpoint (or a public fallback endpoint).
 
 ### Configure by URL
 
 - WebRTC mode (default):
   - `?rt=webrtc`
-  - optional custom signaling: `?rt=webrtc&signaling=wss://your-signal.example.com`
+  - optional custom signaling: `?rt=webrtc&signaling=wss://signal-1.example.com,wss://signal-2.example.com`
+  - optional automatic fallback to WebSocket if no peer appears: `?fallback=websocket&fallbackDelayMs=7000&publicWs=wss://demos.yjs.dev`
 - WebSocket mode:
   - `?rt=websocket&ws=wss://your-yws.example.com`
 
@@ -37,6 +38,9 @@ You can also persist values in localStorage:
 - `planner_rt_mode`: `webrtc` or `websocket`
 - `planner_signaling_url`: comma-separated signaling URLs
 - `planner_ws_endpoint`: websocket endpoint URL
+- `planner_public_ws_endpoint`: public fallback websocket endpoint (default `wss://demos.yjs.dev`)
+- `planner_rt_fallback`: `websocket` to auto-fallback from WebRTC
+- `planner_rt_fallback_delay`: delay in ms before fallback check
 
 ## Minimal backend for production (y-websocket)
 
